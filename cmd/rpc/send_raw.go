@@ -26,6 +26,7 @@ func init() {
 
 func sendRaw() {
 	client := util.MustGetClient()
+	defer client.Close()
 
 	if strings.HasPrefix(data, "0x") {
 		data = data[2:]

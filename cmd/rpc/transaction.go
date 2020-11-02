@@ -26,6 +26,7 @@ func init() {
 
 func getTransaction() {
 	client := util.MustGetClient()
+	defer client.Close()
 
 	tx, err := client.GetTransactionByHash(types.Hash(hash))
 	if err != nil {

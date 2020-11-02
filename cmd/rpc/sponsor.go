@@ -26,6 +26,7 @@ func init() {
 
 func getSponsorInfo() {
 	client := util.MustGetClient()
+	defer client.Close()
 
 	info, err := client.GetSponsorInfo(types.Address(address))
 	if err != nil {

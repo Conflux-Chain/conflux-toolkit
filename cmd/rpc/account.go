@@ -26,6 +26,7 @@ func init() {
 
 func getAccountInfo() {
 	client := util.MustGetClient()
+	defer client.Close()
 
 	info, err := client.GetAccountInfo(types.Address(address))
 	if err != nil {

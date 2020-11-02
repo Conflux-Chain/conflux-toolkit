@@ -25,6 +25,7 @@ func init() {
 
 func getEpochInfo() {
 	client := util.MustGetClient()
+	defer client.Close()
 
 	mined := mustGetEpochNumber(client, types.EpochLatestMined)
 	fmt.Printf("Latest mined      : %v\n", mined)
