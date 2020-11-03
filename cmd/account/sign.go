@@ -34,7 +34,7 @@ var (
 )
 
 func init() {
-	signCmd.PersistentFlags().StringVar(&account, "from", "0", "From address in HEX format or address index number")
+	signCmd.PersistentFlags().StringVar(&Account, "from", "0", "From address in HEX format or address index number")
 	signCmd.MarkPersistentFlagRequired("from")
 
 	signCmd.PersistentFlags().Uint32Var(&nonce, "nonce", 0, "Transaction nonce")
@@ -65,7 +65,7 @@ func init() {
 func sign() {
 	tx := types.UnsignedTransaction{
 		UnsignedTransactionBase: types.UnsignedTransactionBase{
-			From:         types.NewAddress(mustParseAccount()),
+			From:         types.NewAddress(MustParseAccount()),
 			Nonce:        types.NewBigInt(int64(nonce)),
 			GasPrice:     types.NewBigIntByRaw(mustParsePrice()),
 			Gas:          types.NewBigInt(int64(gasLimit)),

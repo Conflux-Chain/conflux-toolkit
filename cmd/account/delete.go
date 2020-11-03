@@ -16,14 +16,14 @@ var deleteCmd = &cobra.Command{
 }
 
 func init() {
-	deleteCmd.PersistentFlags().StringVar(&account, "account", "", "Account address in HEX format or address index number")
+	deleteCmd.PersistentFlags().StringVar(&Account, "account", "", "Account address in HEX format or address index number")
 	deleteCmd.MarkPersistentFlagRequired("account")
 
 	rootCmd.AddCommand(deleteCmd)
 }
 
 func deleteAccount() {
-	account := mustParseAccount()
+	account := MustParseAccount()
 	password := mustInputPassword("Enter password: ")
 
 	if err := am.Delete(types.Address(account), password); err != nil {
