@@ -9,23 +9,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var accountCmd = &cobra.Command{
-	Use:   "account",
-	Short: "Get account info",
-	Run: func(cmd *cobra.Command, args []string) {
-		getAccountInfo()
-	},
-}
-
 func init() {
+	accountCmd := &cobra.Command{
+		Use:   "account",
+		Short: "Get account info",
+		Run:   getAccountInfo,
+	}
+
 	accountCmd.PersistentFlags().StringVar(&address, "address", "", "Account address in HEX format")
 	accountCmd.MarkPersistentFlagRequired("address")
 
 	rootCmd.AddCommand(accountCmd)
 }
 
-func getAccountInfo() {
-	client := util.MustGetClient()
+func getAccountInfo(cmd *cobra.Command, args []string) {
+	client := MustCreateClient()
 	defer client.Close()
 
 	info, err := client.GetAccountInfo(types.Address(address))

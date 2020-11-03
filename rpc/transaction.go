@@ -9,23 +9,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var txCmd = &cobra.Command{
-	Use:   "tx",
-	Short: "Get transaction by hash",
-	Run: func(cmd *cobra.Command, args []string) {
-		getTransaction()
-	},
-}
-
 func init() {
+	txCmd := &cobra.Command{
+		Use:   "tx",
+		Short: "Get transaction by hash",
+		Run:   getTransaction,
+	}
+
 	txCmd.PersistentFlags().StringVar(&hash, "hash", "", "Transaction hash in HEX format")
 	txCmd.MarkPersistentFlagRequired("hash")
 
 	rootCmd.AddCommand(txCmd)
 }
 
-func getTransaction() {
-	client := util.MustGetClient()
+func getTransaction(cmd *cobra.Command, args []string) {
+	client := MustCreateClient()
 	defer client.Close()
 
 	tx, err := client.GetTransactionByHash(types.Hash(hash))

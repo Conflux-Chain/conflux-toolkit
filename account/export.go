@@ -7,22 +7,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var exportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Export private key",
-	Run: func(cmd *cobra.Command, args []string) {
-		exportKey()
-	},
-}
-
 func init() {
-	exportCmd.PersistentFlags().StringVar(&Account, "account", "", "Account address in HEX format or address index number")
-	exportCmd.MarkPersistentFlagRequired("account")
+	exportCmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export private key",
+		Run:   exportKey,
+	}
+
+	AddAccountVar(exportCmd)
 
 	rootCmd.AddCommand(exportCmd)
 }
 
-func exportKey() {
+func exportKey(cmd *cobra.Command, args []string) {
 	account := MustParseAccount()
 	password := mustInputPassword("Enter password: ")
 

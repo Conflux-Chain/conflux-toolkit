@@ -6,25 +6,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	numAccounts uint
-
-	createCmd = &cobra.Command{
-		Use:   "create",
-		Short: "Create new accounts",
-		Run: func(cmd *cobra.Command, args []string) {
-			createNewAccounts()
-		},
-	}
-)
+var numAccounts uint
 
 func init() {
+	createCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create new accounts",
+		Run:   createNewAccounts,
+	}
+
 	createCmd.PersistentFlags().UintVar(&numAccounts, "num", 1, "Number of accounts to create")
 
 	rootCmd.AddCommand(createCmd)
 }
 
-func createNewAccounts() {
+func createNewAccounts(cmd *cobra.Command, args []string) {
 	password := mustInputAndConfirmPassword()
 
 	for i := uint(0); i < numAccounts; i++ {

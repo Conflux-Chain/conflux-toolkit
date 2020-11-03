@@ -6,26 +6,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	privateKey string
-
-	importCmd = &cobra.Command{
-		Use:   "import",
-		Short: "Import private key",
-		Run: func(cmd *cobra.Command, args []string) {
-			importKey()
-		},
-	}
-)
+var privateKey string
 
 func init() {
+	importCmd := &cobra.Command{
+		Use:   "import",
+		Short: "Import private key",
+		Run:   importKey,
+	}
+
 	importCmd.PersistentFlags().StringVar(&privateKey, "key", "", "Private key in HEX format")
 	importCmd.MarkPersistentFlagRequired("key")
 
 	rootCmd.AddCommand(importCmd)
 }
 
-func importKey() {
+func importKey(cmd *cobra.Command, args []string) {
 	password := mustInputAndConfirmPassword()
 
 	account, err := am.ImportKey(privateKey, password)

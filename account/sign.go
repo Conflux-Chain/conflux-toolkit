@@ -3,40 +3,30 @@ package account
 import (
 	"encoding/hex"
 	"fmt"
-	"math/big"
-	"os"
 
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
-	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
 
 var (
 	nonce        uint32
 	to           string
-	priceStr     string
 	gasLimit     uint32
-	valueStr     string
 	storageLimit uint64
 	epoch        uint64
 	chain        uint
 	data         string
-
-	dripsPerCfx *big.Float = new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
-
-	signCmd = &cobra.Command{
-		Use:   "sign",
-		Short: "Sign transaction to send",
-		Run: func(cmd *cobra.Command, args []string) {
-			sign()
-		},
-	}
 )
 
 func init() {
-	signCmd.PersistentFlags().StringVar(&Account, "from", "0", "From address in HEX format or address index number")
-	signCmd.MarkPersistentFlagRequired("from")
+	signCmd := &cobra.Command{
+		Use:   "sign",
+		Short: "Sign transaction to send",
+		Run:   sign,
+	}
+
+	addFromVar(signCmd)
 
 	signCmd.PersistentFlags().Uint32Var(&nonce, "nonce", 0, "Transaction nonce")
 	signCmd.MarkPersistentFlagRequired("nonce")
@@ -44,11 +34,11 @@ func init() {
 	signCmd.PersistentFlags().StringVar(&to, "to", "", "To address in HEX format")
 	signCmd.MarkPersistentFlagRequired("to")
 
-	signCmd.PersistentFlags().StringVar(&priceStr, "price", "1", "Gas price in drip")
+	AddGasPriceVar(signCmd)
 
 	signCmd.PersistentFlags().Uint32Var(&gasLimit, "gas", 21000, "Gas limit")
 
-	signCmd.PersistentFlags().StringVar(&valueStr, "value", "", "Value to transfer in CFX")
+	signCmd.PersistentFlags().StringVar(&ValueStr, "value", "", "Value to transfer in CFX")
 	signCmd.MarkPersistentFlagRequired("value")
 
 	signCmd.PersistentFlags().Uint64Var(&storageLimit, "storage", 0, "Storage limit")
@@ -63,14 +53,14 @@ func init() {
 	rootCmd.AddCommand(signCmd)
 }
 
-func sign() {
+func sign(cmd *cobra.Command, args []string) {
 	tx := types.UnsignedTransaction{
 		UnsignedTransactionBase: types.UnsignedTransactionBase{
 			From:         types.NewAddress(MustParseAccount()),
 			Nonce:        types.NewBigInt(int64(nonce)),
-			GasPrice:     types.NewBigIntByRaw(mustParsePrice()),
+			GasPrice:     types.NewBigIntByRaw(MustParsePrice()),
 			Gas:          types.NewBigInt(int64(gasLimit)),
-			Value:        types.NewBigIntByRaw(mustParseValue()),
+			Value:        types.NewBigIntByRaw(MustParseValue()),
 			StorageLimit: types.NewUint64(storageLimit),
 			EpochHeight:  types.NewUint64(epoch),
 			ChainID:      types.NewUint(chain),
@@ -97,24 +87,4 @@ func sign() {
 
 	fmt.Println("=======================================")
 	fmt.Println("0x" + hex.EncodeToString(encoded))
-}
-
-func mustParsePrice() *big.Int {
-	price, ok := new(big.Int).SetString(priceStr, 10)
-	if !ok {
-		fmt.Println("invalid number format for price")
-		os.Exit(1)
-	}
-
-	return price
-}
-
-func mustParseValue() *big.Int {
-	value, err := decimal.NewFromString(valueStr)
-	if err != nil {
-		fmt.Println("invalid decimal format for value:", err.Error())
-		os.Exit(1)
-	}
-
-	return decimal.NewFromBigInt(big.NewInt(10), 18).Mul(value).BigInt()
 }

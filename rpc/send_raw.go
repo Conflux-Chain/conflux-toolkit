@@ -5,27 +5,24 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Conflux-Chain/conflux-toolkit/util"
 	"github.com/spf13/cobra"
 )
 
-var sendCmd = &cobra.Command{
-	Use:   "send-raw",
-	Short: "Send signed transaction",
-	Run: func(cmd *cobra.Command, args []string) {
-		sendRaw()
-	},
-}
-
 func init() {
+	sendCmd := &cobra.Command{
+		Use:   "send-raw",
+		Short: "Send signed transaction",
+		Run:   sendRaw,
+	}
+
 	sendCmd.PersistentFlags().StringVar(&data, "raw", "", "Raw transaction in HEX format")
 	sendCmd.MarkPersistentFlagRequired("raw")
 
 	rootCmd.AddCommand(sendCmd)
 }
 
-func sendRaw() {
-	client := util.MustGetClient()
+func sendRaw(cmd *cobra.Command, args []string) {
+	client := MustCreateClient()
 	defer client.Close()
 
 	if strings.HasPrefix(data, "0x") {
