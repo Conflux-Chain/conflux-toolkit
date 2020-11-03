@@ -2,8 +2,12 @@ package sponsorfaucet
 
 import (
 	"fmt"
+	"math/big"
+	"os"
 
 	"github.com/Conflux-Chain/conflux-toolkit/util"
+	sdk "github.com/Conflux-Chain/go-conflux-sdk"
+	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/spf13/cobra"
 )
 
@@ -20,18 +24,36 @@ func init() {
 }
 
 func queryInfo() {
-	totalGas := util.MustDecodeUint256(util.MustCall("0x5f929b7b"))
-	fmt.Println("Total gas:", util.DisplayValueWithUnit(totalGas))
+	client := util.MustGetClient()
+	defer client.Close()
 
-	totalCollateral := util.MustDecodeUint256(util.MustCall("0x5607a2c4"))
-	fmt.Println("Total collateral:", util.DisplayValueWithUnit(totalCollateral))
+	contract, err := client.GetContract([]byte(abiJSON), types.NewAddress(util.Contract))
+	if err != nil {
+		fmt.Println("Failed to read ABI:", err.Error())
+		return
+	}
 
-	boundGas := util.MustDecodeUint256(util.MustCall("0x9ca64c41"))
-	fmt.Println("Gas bound:", util.DisplayValueWithUnit(boundGas))
+	result := new(big.Int)
 
-	boundCollateral := util.MustDecodeUint256(util.MustCall("0xca9c8c37"))
-	fmt.Println("Collateral bound:", util.DisplayValueWithUnit(boundCollateral))
+	mustCall(contract, &result, "gas_total_limit")
+	fmt.Println("Total gas:", util.DisplayValueWithUnit(result))
 
-	boundFee := util.MustDecodeUint256(util.MustCall("0x85eb4dab"))
-	fmt.Println("Fee bound:", util.DisplayValueWithUnit(boundFee))
+	mustCall(contract, &result, "collateral_total_limit")
+	fmt.Println("Total collateral:", util.DisplayValueWithUnit(result))
+
+	mustCall(contract, &result, "gas_bound")
+	fmt.Println("Gas bound:", util.DisplayValueWithUnit(result))
+
+	mustCall(contract, &result, "collateral_bound")
+	fmt.Println("Collateral bound:", util.DisplayValueWithUnit(result))
+
+	mustCall(contract, &result, "upper_bound")
+	fmt.Println("Fee bound:", util.DisplayValueWithUnit(result))
+}
+
+func mustCall(contract *sdk.Contract, resultPtr interface{}, method string, args ...interface{}) {
+	if err := contract.Call(nil, resultPtr, method, args...); err != nil {
+		fmt.Printf("Failed to call method %v: %v\n", method, err.Error())
+		os.Exit(1)
+	}
 }
