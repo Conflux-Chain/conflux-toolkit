@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/howeyc/gopass"
 )
@@ -15,7 +16,7 @@ var Account string
 func MustParseAccount() string {
 	accountIndex, err := strconv.Atoi(Account)
 	if err != nil {
-		return Account
+		return strings.ToLower(Account)
 	}
 
 	accounts := listAccountsAsc()
