@@ -8,6 +8,7 @@ import (
 
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
+	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
 
@@ -109,13 +110,11 @@ func mustParsePrice() *big.Int {
 }
 
 func mustParseValue() *big.Int {
-	value, ok := new(big.Float).SetString(valueStr)
-	if !ok {
-		fmt.Println("invalid float format for value")
+	value, err := decimal.NewFromString(valueStr)
+	if err != nil {
+		fmt.Println("invalid decimal format for value:", err.Error())
 		os.Exit(1)
 	}
 
-	result, _ := new(big.Float).Mul(value, dripsPerCfx).Int(nil)
-
-	return result
+	return decimal.NewFromBigInt(big.NewInt(10), 18).Mul(value).BigInt()
 }
