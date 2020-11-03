@@ -9,23 +9,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var sponsorCmd = &cobra.Command{
-	Use:   "sponsor",
-	Short: "Get sponsor info for specified contract",
-	Run: func(cmd *cobra.Command, args []string) {
-		getSponsorInfo()
-	},
-}
-
 func init() {
+	sponsorCmd := &cobra.Command{
+		Use:   "sponsor",
+		Short: "Get sponsor info for specified contract",
+		Run:   getSponsorInfo,
+	}
+
 	sponsorCmd.PersistentFlags().StringVar(&address, "contract", "", "Contract address in HEX format")
 	sponsorCmd.MarkPersistentFlagRequired("contract")
 
 	rootCmd.AddCommand(sponsorCmd)
 }
 
-func getSponsorInfo() {
-	client := util.MustGetClient()
+func getSponsorInfo(cmd *cobra.Command, args []string) {
+	client := MustCreateClient()
 	defer client.Close()
 
 	info, err := client.GetSponsorInfo(types.Address(address))

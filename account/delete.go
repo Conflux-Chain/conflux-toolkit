@@ -7,23 +7,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var deleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "Delete an account",
-	Run: func(cmd *cobra.Command, args []string) {
-		deleteAccount()
-	},
-}
-
 func init() {
-	deleteCmd.PersistentFlags().StringVar(&account, "account", "", "Account address in HEX format or address index number")
-	deleteCmd.MarkPersistentFlagRequired("account")
+	deleteCmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete an account",
+		Run:   deleteAccount,
+	}
+
+	AddAccountVar(deleteCmd)
 
 	rootCmd.AddCommand(deleteCmd)
 }
 
-func deleteAccount() {
-	account := mustParseAccount()
+func deleteAccount(cmd *cobra.Command, args []string) {
+	account := MustParseAccount()
 	password := mustInputPassword("Enter password: ")
 
 	if err := am.Delete(types.Address(account), password); err != nil {

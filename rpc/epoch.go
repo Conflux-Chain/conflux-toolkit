@@ -5,26 +5,21 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/spf13/cobra"
 )
 
-var epochCmd = &cobra.Command{
-	Use:   "epoch",
-	Short: "Get epoch info",
-	Run: func(cmd *cobra.Command, args []string) {
-		getEpochInfo()
-	},
-}
-
 func init() {
-	rootCmd.AddCommand(epochCmd)
+	rootCmd.AddCommand(&cobra.Command{
+		Use:   "epoch",
+		Short: "Get epoch info",
+		Run:   getEpochInfo,
+	})
 }
 
-func getEpochInfo() {
-	client := util.MustGetClient()
+func getEpochInfo(cmd *cobra.Command, args []string) {
+	client := MustCreateClient()
 	defer client.Close()
 
 	mined := mustGetEpochNumber(client, types.EpochLatestMined)
