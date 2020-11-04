@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/howeyc/gopass"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
@@ -19,6 +20,9 @@ var (
 
 	// ValueStr is the string representation of value.
 	ValueStr string
+
+	// DefaultAccountManager is the default account manager under keystore folder.
+	DefaultAccountManager *sdk.AccountManager = am
 )
 
 // AddAccountVar adds account variable for specified command.
@@ -79,7 +83,7 @@ func MustParseValue() *big.Int {
 		os.Exit(1)
 	}
 
-	return decimal.NewFromBigInt(big.NewInt(10), 18).Mul(value).BigInt()
+	return decimal.NewFromBigInt(big.NewInt(1), 18).Mul(value).BigInt()
 }
 
 func listAccountsAsc() []string {
@@ -97,8 +101,8 @@ func listAccountsAsc() []string {
 func mustInputAndConfirmPassword() string {
 	fmt.Println("Please input password to create key file!")
 
-	passwd1 := mustInputPassword("Enter password: ")
-	passwd2 := mustInputPassword("Confirm password: ")
+	passwd1 := MustInputPassword("Enter password: ")
+	passwd2 := MustInputPassword("Confirm password: ")
 
 	if passwd1 != passwd2 {
 		fmt.Println("Password mismatch!")
@@ -108,7 +112,8 @@ func mustInputAndConfirmPassword() string {
 	return passwd1
 }
 
-func mustInputPassword(prompt string) string {
+// MustInputPassword prompt user to input password.
+func MustInputPassword(prompt string) string {
 	fmt.Print(prompt)
 
 	passwd, err := gopass.GetPasswd()

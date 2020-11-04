@@ -21,7 +21,7 @@ func init() {
 
 func deleteAccount(cmd *cobra.Command, args []string) {
 	account := MustParseAccount()
-	password := mustInputPassword("Enter password: ")
+	password := MustInputPassword("Enter password: ")
 
 	if err := am.Delete(types.Address(account), password); err != nil {
 		fmt.Println("Failed to delete account:", err.Error())

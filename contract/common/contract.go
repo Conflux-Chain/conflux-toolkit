@@ -4,8 +4,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/Conflux-Chain/conflux-toolkit/account"
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
@@ -23,6 +25,7 @@ func AddContractVar(cmd *cobra.Command) {
 // MustCreateContract creates an instance to interact with contract.
 func MustCreateContract(abiJSON string) *sdk.Contract {
 	client := rpc.MustCreateClient()
+	client.SetAccountManager(account.DefaultAccountManager)
 
 	contract, err := client.GetContract([]byte(abiJSON), types.NewAddress(contract))
 	if err != nil {
@@ -82,6 +85,10 @@ func MustExecuteTx(contract *sdk.Contract, option *types.ContractMethodSendOptio
 
 // MustAddress2Bytes20 converts address in HEX format to [20]byte.
 func MustAddress2Bytes20(address string) [20]byte {
+	if strings.HasPrefix(address, "0x") {
+		address = address[2:]
+	}
+
 	decoded, err := hex.DecodeString(address)
 	if err != nil {
 		fmt.Println("Failed to decode address to [20]byte:", err.Error())

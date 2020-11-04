@@ -48,13 +48,15 @@ func withdraw(cmd *cobra.Command, args []string) {
 		GasPrice: types.NewBigIntByRaw(account.MustParsePrice()),
 	}
 
+	password := account.MustInputPassword("Enter password: ")
+	account.DefaultAccountManager.Unlock(types.Address(from), password)
+
 	// ensure contract is paused
 	var paused bool
 	common.MustCall(contract, &paused, "paused")
 	if !paused {
-		fmt.Print("Pause contract...")
+		fmt.Println("Pause contract...")
 		txHash := common.MustExecuteTx(contract, &option, "pause")
-		fmt.Println("Done")
 		fmt.Println("tx hash:", txHash)
 	}
 
@@ -63,8 +65,14 @@ func withdraw(cmd *cobra.Command, args []string) {
 		recipient = from
 	}
 	amount := account.MustParseValue()
-	fmt.Print("Withdraw funds...")
-	txHash := common.MustExecuteTx(contract, &option, "withdraw", common.MustAddress2Bytes20(recipient), amount)
-	fmt.Println("Done")
+	if amount.Sign() > 0 {
+		fmt.Println("Withdraw funds...")
+		txHash := common.MustExecuteTx(contract, &option, "withdraw", common.MustAddress2Bytes20(recipient), amount)
+		fmt.Println("tx hash:", txHash)
+	}
+
+	// unpause contract
+	fmt.Println("Unpause contract...")
+	txHash := common.MustExecuteTx(contract, &option, "unpause")
 	fmt.Println("tx hash:", txHash)
 }

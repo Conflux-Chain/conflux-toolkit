@@ -77,7 +77,7 @@ func sign(cmd *cobra.Command, args []string) {
 		tx.Data = txData
 	}
 
-	password := mustInputPassword("Enter password: ")
+	password := MustInputPassword("Enter password: ")
 
 	encoded, err := am.SignAndEcodeTransactionWithPassphrase(tx, password)
 	if err != nil {

@@ -21,7 +21,7 @@ func init() {
 
 func exportKey(cmd *cobra.Command, args []string) {
 	account := MustParseAccount()
-	password := mustInputPassword("Enter password: ")
+	password := MustInputPassword("Enter password: ")
 
 	privKey, err := am.Export(types.Address(account), password)
 	if err != nil {
