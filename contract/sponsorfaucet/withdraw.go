@@ -24,7 +24,7 @@ func init() {
 
 	withdrawCmd.PersistentFlags().StringVar(&recipient, "recipient", "", "Recipient for withdrawal, empty for owner")
 
-	withdrawCmd.PersistentFlags().StringVar(&account.ValueStr, "amount", "", "Amount to withdraw in CFX")
+	withdrawCmd.PersistentFlags().StringVar(&account.ValueCfx, "amount", "", "Amount to withdraw in CFX")
 	withdrawCmd.MarkPersistentFlagRequired("amount")
 
 	rootCmd.AddCommand(withdrawCmd)

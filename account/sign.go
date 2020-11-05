@@ -38,7 +38,7 @@ func init() {
 
 	signCmd.PersistentFlags().Uint32Var(&gasLimit, "gas", 21000, "Gas limit")
 
-	signCmd.PersistentFlags().StringVar(&ValueStr, "value", "", "Value to transfer in CFX")
+	signCmd.PersistentFlags().StringVar(&ValueCfx, "value", "", "Value to transfer in CFX")
 	signCmd.MarkPersistentFlagRequired("value")
 
 	signCmd.PersistentFlags().Uint64Var(&storageLimit, "storage", 0, "Storage limit")

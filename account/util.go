@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
+	common "github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/howeyc/gopass"
-	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
 
@@ -18,8 +18,8 @@ var (
 	account  string
 	priceStr string
 
-	// ValueStr is the string representation of value.
-	ValueStr string
+	// ValueCfx is the string representation of value in CFX.
+	ValueCfx string
 
 	// DefaultAccountManager is the default account manager under keystore folder.
 	DefaultAccountManager *sdk.AccountManager = am
@@ -77,13 +77,7 @@ func MustParsePrice() *big.Int {
 
 // MustParseValue parse value in CFX from input parameter.
 func MustParseValue() *big.Int {
-	value, err := decimal.NewFromString(ValueStr)
-	if err != nil {
-		fmt.Println("invalid decimal format for value:", err.Error())
-		os.Exit(1)
-	}
-
-	return decimal.NewFromBigInt(big.NewInt(1), 18).Mul(value).BigInt()
+	return common.MustParseBigInt(ValueCfx, 18)
 }
 
 func listAccountsAsc() []string {

@@ -3,6 +3,7 @@ package util
 import (
 	"fmt"
 	"math/big"
+	"os"
 
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
@@ -17,6 +18,17 @@ func CreateUsageCommand(use, short string) *cobra.Command {
 			cmd.Help()
 		},
 	}
+}
+
+// MustParseBigInt parses the specified value to number and returns value * 10 ^ exp.
+func MustParseBigInt(value string, exp int32) *big.Int {
+	num, err := decimal.NewFromString(value)
+	if err != nil {
+		fmt.Println("invalid decimal format for value:", err.Error())
+		os.Exit(1)
+	}
+
+	return decimal.NewFromBigInt(big.NewInt(1), exp).Mul(num).BigInt()
 }
 
 // DisplayValueWithUnit returns the display format for given drip value.
