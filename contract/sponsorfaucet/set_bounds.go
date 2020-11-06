@@ -80,7 +80,6 @@ func setBounds(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Print(option)
 	fmt.Println("Set bounds...")
 	txHash := common.MustExecuteTx(contract, &option, "setBounds", gasTotal, collateralTotal, gasBound, collateralBound, feeBound)
 	fmt.Println("tx hash:", txHash)
