@@ -11,6 +11,7 @@ import (
 
 	"github.com/Conflux-Chain/conflux-toolkit/account"
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
+	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
@@ -55,7 +56,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 		// composite tx
 		if i == 0 {
 			tx, e = client.CreateUnsignedTransaction(types.Address(from), v.To, types.NewBigInt(0), nil)
-			OsExitIfErr(e, "create unsigned tx error")
+			util.OsExitIfErr(e, "create unsigned tx error")
 		}
 		if i <= lastPoint {
 			continue
@@ -70,7 +71,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 
 		// sign
 		encoded, e := am.SignTransaction(*tx)
-		OsExitIfErr(e, "Failed to sign transaction")
+		util.OsExitIfErr(e, "Failed to sign transaction")
 		fmt.Printf("sign to %v with value %v CFX done\n", tx.To, airdropNumber*v.Weight)
 
 		// push to batch item array
@@ -85,7 +86,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 		if count == perBatchNum || i == len(airdropInfos)-1 {
 			// batch send
 			e := client.BatchCallRPC(rpcBatchElems)
-			OsExitIfErr(e, "batch send error")
+			util.OsExitIfErr(e, "batch send error")
 
 			// save record
 			ioutil.WriteFile(resultPath, []byte(strconv.Itoa(i)), 0777)
@@ -95,7 +96,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 
 			fmt.Printf("send %v tx done, wait be executed:%v\n", len(rpcBatchElems), lastHash)
 			_, e = client.WaitForTransationReceipt(*lastHash, time.Second)
-			OsExitIfErr(e, "failed to get result of tx %+v", tx)
+			util.OsExitIfErr(e, "failed to get result of tx %+v", tx)
 
 			// reset count and batch elem result
 			rpcBatchElems = []clientRpc.BatchElem{}
@@ -104,7 +105,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 
 		if i == len(airdropInfos)-1 {
 			e := os.Remove(resultPath)
-			OsExitIfErr(e, "remove result file error.")
+			util.OsExitIfErr(e, "remove result file error.")
 		}
 
 		nonce = nonce.Add(nonce, big.NewInt(1))
@@ -115,7 +116,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 func mustParseInput() []AirdropInfo {
 	// read csv file
 	content, err := ioutil.ReadFile(airdropListFile)
-	OsExitIfErr(err, "read file %v error", airdropListFile)
+	util.OsExitIfErr(err, "read file %v error", airdropListFile)
 
 	// parse to struct
 	lines := strings.Split(string(content), "\n")
@@ -127,11 +128,11 @@ func mustParseInput() []AirdropInfo {
 		items := strings.Split(v, " ")
 
 		if len(items) != 2 {
-			OsExit("elems length of %#v is %v not equal to 2\n", v, len(items))
+			util.OsExit("elems length of %#v is %v not equal to 2\n", v, len(items))
 		}
 
 		weight, err := strconv.Atoi(items[1])
-		OsExitIfErr(err, "parse %v to int error", weight)
+		util.OsExitIfErr(err, "parse %v to int error", weight)
 
 		info := AirdropInfo{
 			To:     types.Address(items[0]),
@@ -154,14 +155,14 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint 
 
 	// get inital Nonce
 	nonce, e := client.GetNextNonce(types.Address(from))
-	OsExitIfErr(e, "get nonce of from %v", from)
+	util.OsExitIfErr(e, "get nonce of from %v", from)
 
 	resultFs, e := os.OpenFile(resultPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
-	OsExitIfErr(e, "failed to create file")
+	util.OsExitIfErr(e, "failed to create file")
 	defer resultFs.Close()
 
 	lastPointStr, e := ioutil.ReadFile(resultPath)
-	OsExitIfErr(e, "read result content error")
+	util.OsExitIfErr(e, "read result content error")
 
 	if len(lastPointStr) > 0 {
 		lastPoint, e = strconv.Atoi(string(lastPointStr))
@@ -173,7 +174,7 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint 
 
 func checkBalance(client *sdk.Client, airdrops []AirdropInfo) {
 	balance, err := client.GetBalance(types.Address(from))
-	OsExitIfErr(err, "failed to get balance")
+	util.OsExitIfErr(err, "failed to get balance")
 
 	var needCfx int64
 	for _, v := range airdrops {
@@ -182,23 +183,6 @@ func checkBalance(client *sdk.Client, airdrops []AirdropInfo) {
 	needDrip := big.NewInt(1).Mul(big.NewInt(needCfx), big.NewInt(1e18))
 
 	if balance.Cmp(needDrip) < 0 {
-		OsExit("out of balance, need %v, has %v:", needDrip, balance)
+		util.OsExit("out of balance, need %v, has %v:", needDrip, balance)
 	}
-}
-
-// OsExitIfErr ...
-func OsExitIfErr(err error, format string, a ...interface{}) {
-	if err != nil {
-		fmt.Printf(format, a...)
-		fmt.Printf("--- error:%v", err)
-		fmt.Println()
-		os.Exit(1)
-	}
-}
-
-// OsExit ...
-func OsExit(format string, a ...interface{}) {
-	fmt.Printf(format, a...)
-	fmt.Println()
-	os.Exit(1)
 }
