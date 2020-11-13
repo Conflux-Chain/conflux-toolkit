@@ -5,6 +5,7 @@ import "github.com/spf13/cobra"
 var airdropListFile string
 var airdropNumber int
 var from string
+var perBatchNum int
 
 // AddAirdropListFileVar 。。。
 func AddAirdropListFileVar(cmd *cobra.Command) {
@@ -21,5 +22,11 @@ func AddAirdropNumberVar(cmd *cobra.Command) {
 // AddFromVar ...
 func AddFromVar(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringVar(&from, "from", "", "airdop sender address")
+	cmd.MarkPersistentFlagRequired("airdrop")
+}
+
+// AddBatchVar ...
+func AddBatchVar(cmd *cobra.Command) {
+	cmd.PersistentFlags().IntVar(&perBatchNum, "batch", 100, "send tx number per batch")
 	cmd.MarkPersistentFlagRequired("airdrop")
 }

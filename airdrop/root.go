@@ -32,6 +32,7 @@ func init() {
 	AddAirdropListFileVar(rootCmd)
 	AddAirdropNumberVar(rootCmd)
 	AddFromVar(rootCmd)
+	AddBatchVar(rootCmd)
 }
 
 // SetParent sets parent command
@@ -45,7 +46,6 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 	client, am, lastPoint, nonce := initialEnviorment()
 	checkBalance(client, airdropInfos)
 
-	batch := 2
 	count := 0
 	rpcBatchElems := []clientRpc.BatchElem{}
 	tx := &types.UnsignedTransaction{}
@@ -54,7 +54,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 	for i, v := range airdropInfos {
 		// composite tx
 		if i == 0 {
-			tx, e = client.CreateUnsignedTransaction(types.Address(from), v.To, types.NewBigInt(int64(airdropNumber*v.Weight)), nil)
+			tx, e = client.CreateUnsignedTransaction(types.Address(from), v.To, types.NewBigInt(0), nil)
 			OsExitIfErr(e, "create unsigned tx error")
 		}
 		if i <= lastPoint {
@@ -68,6 +68,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 		tx.GasPrice = types.NewBigInt(1)
 		tx.Gas = types.NewBigInt(21000)
 
+		// sign
 		encoded, e := am.SignTransaction(*tx)
 		OsExitIfErr(e, "Failed to sign transaction")
 		fmt.Printf("sign to %v with value %v CFX done\n", tx.To, airdropNumber*v.Weight)
@@ -81,7 +82,7 @@ func doAirdrop(cmd *cobra.Command, args []string) {
 		})
 
 		count++
-		if count == batch || i == len(airdropInfos)-1 {
+		if count == perBatchNum || i == len(airdropInfos)-1 {
 			// batch send
 			e := client.BatchCallRPC(rpcBatchElems)
 			OsExitIfErr(e, "batch send error")
