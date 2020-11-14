@@ -109,7 +109,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 			// wait last packed
 			lastHash := rpcBatchElems[len(rpcBatchElems)-1].Result.(*types.Hash)
 
-			fmt.Printf("send %v tx done, wait be executed:%v\n", len(rpcBatchElems), lastHash)
+			fmt.Printf("batch send %v tx, total send %v done, wait last be executed: %v\n", len(rpcBatchElems), i+1, lastHash)
 			_, e = client.WaitForTransationReceipt(*lastHash, time.Second)
 			util.OsExitIfErr(e, "failed to get result of tx %+v", tx)
 
@@ -139,8 +139,10 @@ func mustParseInput() []Receiver {
 	for _, v := range lines {
 		v = strings.Replace(v, "\t", " ", -1)
 		v = strings.Replace(v, ",", " ", -1)
-		v = strings.Join(strings.Fields(v), " ")
-		items := strings.Split(v, " ")
+		items := strings.Fields(v)
+		if len(v) == 0 {
+			continue
+		}
 
 		if len(items) != 2 {
 			util.OsExit("elems length of %#v is %v not equal to 2\n", v, len(items))
@@ -155,6 +157,7 @@ func mustParseInput() []Receiver {
 		}
 		receiverInfos = append(receiverInfos, info)
 	}
+	fmt.Printf("receiver list count :%+v\n", len(receiverInfos))
 	return receiverInfos
 }
 
@@ -183,7 +186,7 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, from types
 	if len(lastPointStr) > 0 {
 		lastPoint, e = strconv.Atoi(string(lastPointStr))
 	} else {
-		lastPoint = 0
+		lastPoint = -1
 	}
 	return
 }
@@ -209,4 +212,5 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver) 
 		}
 		util.OsExit("out of balance, need %v, has %v", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
 	}
+	fmt.Printf("balance is enough, need %v, has %v\n", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
 }
