@@ -11,5 +11,6 @@ Run `./conflux-toolkit` to view all supported subcommands, including:
 - `account`: account management.
 - `rpc`: interact with full node.
 - `contract`: interact with smart contract.
+- `transfer`: batch transfer cfx to receivers.
 
 For more details, run with `-h` flag.

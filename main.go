@@ -5,9 +5,9 @@ import (
 	"os"
 
 	"github.com/Conflux-Chain/conflux-toolkit/account"
-	airdrop "github.com/Conflux-Chain/conflux-toolkit/airdrop"
 	"github.com/Conflux-Chain/conflux-toolkit/contract"
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
+	"github.com/Conflux-Chain/conflux-toolkit/transfer"
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 )
 
@@ -17,7 +17,7 @@ func init() {
 	account.SetParent(rootCmd)
 	rpc.SetParent(rootCmd)
 	contract.SetParent(rootCmd)
-	airdrop.SetParent(rootCmd)
+	transfer.SetParent(rootCmd)
 }
 
 func main() {

@@ -52,17 +52,17 @@ func DisplayValueWithUnit(drip *big.Int) string {
 	return fmt.Sprintf("%v CFX", decimal.NewFromBigInt(drip, -18))
 }
 
-// OsExitIfErr ...
+// OsExitIfErr prints error msg and exit
 func OsExitIfErr(err error, format string, a ...interface{}) {
 	if err != nil {
 		fmt.Printf(format, a...)
-		fmt.Printf("--- error:%v", err)
+		fmt.Printf("--- error: %v", err)
 		fmt.Println()
 		os.Exit(1)
 	}
 }
 
-// OsExit ...
+// OsExit prints msg and exit
 func OsExit(format string, a ...interface{}) {
 	fmt.Printf(format, a...)
 	fmt.Println()

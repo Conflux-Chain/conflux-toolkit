@@ -13,8 +13,8 @@ var url string
 
 // AddURLVar adds URL variable for specified command
 func AddURLVar(cmd *cobra.Command) {
-	// cmd.PersistentFlags().StringVar(&url, "url", "http://main.confluxrpc.org", "Conflux RPC URL")
-	cmd.PersistentFlags().StringVar(&url, "url", "http://test.confluxrpc.org", "Conflux RPC URL")
+	cmd.PersistentFlags().StringVar(&url, "url", "http://main.confluxrpc.org", "Conflux RPC URL")
+	// cmd.PersistentFlags().StringVar(&url, "url", "http://test.confluxrpc.org", "Conflux RPC URL")
 }
 
 // MustCreateClient creates an connection to full node.
