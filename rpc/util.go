@@ -18,7 +18,12 @@ func AddURLVar(cmd *cobra.Command) {
 
 // MustCreateClient creates an connection to full node.
 func MustCreateClient() *sdk.Client {
-	client, err := sdk.NewClientWithRetry(url, 3, time.Second)
+	return MustCreateClientWithRetry(3)
+}
+
+// MustCreateClientWithRetry creates an connection to full node.
+func MustCreateClientWithRetry(retryCount int) *sdk.Client {
+	client, err := sdk.NewClientWithRetry(url, retryCount, time.Second)
 	if err != nil {
 		fmt.Println("Failed to create client:", err.Error())
 		os.Exit(1)

@@ -7,6 +7,7 @@ import (
 	"github.com/Conflux-Chain/conflux-toolkit/account"
 	"github.com/Conflux-Chain/conflux-toolkit/contract"
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
+	"github.com/Conflux-Chain/conflux-toolkit/transfer"
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 )
 
@@ -16,6 +17,7 @@ func init() {
 	account.SetParent(rootCmd)
 	rpc.SetParent(rootCmd)
 	contract.SetParent(rootCmd)
+	transfer.SetParent(rootCmd)
 }
 
 func main() {

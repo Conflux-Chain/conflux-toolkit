@@ -26,7 +26,7 @@ func init() {
 		Run:   sign,
 	}
 
-	addFromVar(signCmd)
+	AddFromVar(signCmd)
 
 	signCmd.PersistentFlags().Uint32Var(&nonce, "nonce", 0, "Transaction nonce")
 	signCmd.MarkPersistentFlagRequired("nonce")

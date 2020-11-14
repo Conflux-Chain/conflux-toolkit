@@ -31,7 +31,7 @@ func AddAccountVar(cmd *cobra.Command) {
 	cmd.MarkPersistentFlagRequired("account")
 }
 
-func addFromVar(cmd *cobra.Command) {
+func AddFromVar(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringVar(&account, "from", "", "From address in HEX format or address index number")
 	cmd.MarkPersistentFlagRequired("from")
 }
