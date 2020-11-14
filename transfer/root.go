@@ -27,11 +27,10 @@ var (
 		Run:   doTransfers,
 	}
 	// path for record result
-	resultPath      = "./airdrop_result"
-	defaultGasPrice = types.NewBigInt(1)
+	resultPath      = "./transfer_result"
 	defaultGasLimit = types.NewBigInt(21000)
 
-	// command arugments
+	// command flags
 	receiverListFile string
 	receiveNumber    uint
 	// from            string
@@ -41,9 +40,14 @@ var (
 func init() {
 	rpc.AddURLVar(rootCmd)
 	account.AddFromVar(rootCmd)
+	account.AddGasPriceVar(rootCmd)
+
 	rootCmd.PersistentFlags().StringVar(&receiverListFile, "receivers", "", "receiver list file path")
 	rootCmd.MarkPersistentFlagRequired("receivers")
+
 	rootCmd.PersistentFlags().UintVar(&receiveNumber, "number", 1, "send value in CFX")
+	rootCmd.MarkPersistentFlagRequired("number")
+
 	rootCmd.PersistentFlags().UintVar(&perBatchNum, "batch", 100, "send tx number per batch")
 }
 
@@ -55,8 +59,8 @@ func SetParent(parent *cobra.Command) {
 func doTransfers(cmd *cobra.Command, args []string) {
 
 	receiverInfos := mustParseInput()
-	client, am, lastPoint, nonce := initialEnviorment()
-	checkBalance(client, receiverInfos)
+	client, am, from, lastPoint, nonce := initialEnviorment()
+	checkBalance(client, from, receiverInfos)
 
 	count := uint(0)
 	rpcBatchElems := []clientRpc.BatchElem{}
@@ -66,7 +70,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	for i, v := range receiverInfos {
 		// composite tx
 		if i == 0 {
-			tx, e = client.CreateUnsignedTransaction(types.Address(account.Account), v.Address, types.NewBigInt(0), nil)
+			tx, e = client.CreateUnsignedTransaction(from, v.Address, types.NewBigInt(0), nil)
 			util.OsExitIfErr(e, "create unsigned tx error")
 		}
 		if i <= lastPoint {
@@ -77,7 +81,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		rawValue := big.NewInt(1).Mul(big.NewInt(int64(receiveNumber*v.Weight)), big.NewInt(1e18))
 		tx.Value = types.NewBigIntByRaw(rawValue)
 		tx.Nonce = types.NewBigIntByRaw(nonce)
-		tx.GasPrice = defaultGasPrice
+		tx.GasPrice = types.NewBigIntByRaw(account.MustParsePrice())
 		tx.Gas = defaultGasLimit
 
 		// sign
@@ -154,18 +158,20 @@ func mustParseInput() []Receiver {
 	return receiverInfos
 }
 
-func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint int, nonce *big.Int) {
+func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, from types.Address, lastPoint int, nonce *big.Int) {
 
 	am = account.DefaultAccountManager
 	client = rpc.MustCreateClientWithRetry(100)
 	client.SetAccountManager(am)
 
+	from = types.Address(account.MustParseAccount())
+
 	password := account.MustInputPassword("Enter password: ")
-	am.Unlock(types.Address(account.Account), password)
+	am.Unlock(from, password)
 
 	// get inital Nonce
-	nonce, e := client.GetNextNonce(types.Address(account.Account))
-	util.OsExitIfErr(e, "get nonce of from %v", account.Account)
+	nonce, e := client.GetNextNonce(from)
+	util.OsExitIfErr(e, "get nonce of from %v", from)
 
 	resultFs, e := os.OpenFile(resultPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
 	util.OsExitIfErr(e, "failed to create file")
@@ -182,19 +188,25 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint 
 	return
 }
 
-func checkBalance(client *sdk.Client, receivers []Receiver) {
-	balance, err := client.GetBalance(types.Address(account.Account))
+func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver) {
+	balance, err := client.GetBalance(from)
 	util.OsExitIfErr(err, "failed to get balance")
 
 	need := big.NewInt(0)
 	for _, v := range receivers {
 		receiverNeed := big.NewInt(1).Mul(big.NewInt(int64(v.Weight*receiveNumber)), big.NewInt(1e18))
-		gasFee := big.NewInt(1).Mul(defaultGasLimit.ToInt(), (defaultGasPrice.ToInt()))
+		gasFee := big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
 		need = need.Add(need, receiverNeed)
 		need = need.Add(need, gasFee)
 	}
 
 	if balance.Cmp(need) < 0 {
+		lastPointStr, e := ioutil.ReadFile(resultPath)
+		util.OsExitIfErr(e, "read result content error")
+
+		if len(lastPointStr) == 0 {
+			os.Remove(resultPath)
+		}
 		util.OsExit("out of balance, need %v, has %v", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
 	}
 }

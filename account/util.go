@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	Account  string
+	account  string
 	priceStr string
 
 	// ValueCfx is the string representation of value in CFX.
@@ -27,12 +27,12 @@ var (
 
 // AddAccountVar adds account variable for specified command.
 func AddAccountVar(cmd *cobra.Command) {
-	cmd.PersistentFlags().StringVar(&Account, "account", "", "Account address in HEX format or address index number")
+	cmd.PersistentFlags().StringVar(&account, "account", "", "Account address in HEX format or address index number")
 	cmd.MarkPersistentFlagRequired("account")
 }
 
 func AddFromVar(cmd *cobra.Command) {
-	cmd.PersistentFlags().StringVar(&Account, "from", "", "From address in HEX format or address index number")
+	cmd.PersistentFlags().StringVar(&account, "from", "", "From address in HEX format or address index number")
 	cmd.MarkPersistentFlagRequired("from")
 }
 
@@ -43,9 +43,9 @@ func AddGasPriceVar(cmd *cobra.Command) {
 
 // MustParseAccount parse account from input parameter.
 func MustParseAccount() string {
-	accountIndex, err := strconv.Atoi(Account)
+	accountIndex, err := strconv.Atoi(account)
 	if err != nil {
-		return strings.ToLower(Account)
+		return strings.ToLower(account)
 	}
 
 	accounts := listAccountsAsc()
