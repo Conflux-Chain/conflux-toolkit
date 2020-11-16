@@ -27,7 +27,8 @@ var (
 		Run:   doTransfers,
 	}
 	// path for record result
-	resultPath      = "./transfer_result"
+	resultPath      = "./transfer_result.txt"
+	warnPath        = "./transfer_warn.txt"
 	defaultGasLimit = types.NewBigInt(21000)
 
 	// command flags
@@ -58,11 +59,18 @@ func SetParent(parent *cobra.Command) {
 
 func doTransfers(cmd *cobra.Command, args []string) {
 
+	resultFs, warnFs := creatRecordFiles()
+	defer func() {
+		resultFs.Close()
+		warnFs.Close()
+	}()
+
 	receiverInfos := mustParseInput()
 	client, am, from, lastPoint, nonce := initialEnviorment()
 	checkBalance(client, from, receiverInfos)
 
-	count := uint(0)
+	sendCount := uint(0)
+	failCount := uint(0)
 	rpcBatchElems := []clientRpc.BatchElem{}
 	tx := &types.UnsignedTransaction{}
 	var e error
@@ -74,6 +82,20 @@ func doTransfers(cmd *cobra.Command, args []string) {
 			util.OsExitIfErr(e, "create unsigned tx error")
 		}
 		if i <= lastPoint {
+			continue
+		}
+
+		if types.NormalAddress != v.Address.GetAddressType() {
+			if failCount == 0 {
+				warnFs.WriteString("=======invalid addresses==========\n")
+			}
+			msg := fmt.Sprintf("invalid address: %v\n", v.Address)
+			fmt.Println(msg)
+			_, err := warnFs.WriteString(msg)
+			if err != nil {
+				fmt.Printf("write warn msg \" %v \" fail", msg)
+			}
+			failCount++
 			continue
 		}
 
@@ -97,8 +119,8 @@ func doTransfers(cmd *cobra.Command, args []string) {
 			Result: &batchElemResult,
 		})
 
-		count++
-		if count == perBatchNum || i == len(receiverInfos)-1 {
+		sendCount++
+		if sendCount == perBatchNum || i == len(receiverInfos)-1 {
 			// batch send
 			e := client.BatchCallRPC(rpcBatchElems)
 			util.OsExitIfErr(e, "batch send error")
@@ -109,22 +131,27 @@ func doTransfers(cmd *cobra.Command, args []string) {
 			// wait last packed
 			lastHash := rpcBatchElems[len(rpcBatchElems)-1].Result.(*types.Hash)
 
-			fmt.Printf("batch send %v tx, total send %v done, wait last be executed: %v\n", len(rpcBatchElems), i+1, lastHash)
+			fmt.Printf("batch send %v tx, total send %v done, failed %v, wait last be executed: %v\n", len(rpcBatchElems), uint(i)+1-failCount, failCount, lastHash)
 			_, e = client.WaitForTransationReceipt(*lastHash, time.Second)
 			util.OsExitIfErr(e, "failed to get result of tx %+v", tx)
 
 			// reset count and batch elem result
 			rpcBatchElems = []clientRpc.BatchElem{}
-			count = 0
-		}
-
-		if i == len(receiverInfos)-1 {
-			e := os.Remove(resultPath)
-			util.OsExitIfErr(e, "remove result file error.")
+			sendCount = 0
 		}
 
 		nonce = nonce.Add(nonce, big.NewInt(1))
 	}
+
+	e = os.Remove(resultPath)
+	util.OsExitIfErr(e, "remove result file error.")
+
+	if failCount == 0 {
+		fmt.Printf("fail count: %v\n", failCount)
+		e = os.Remove(warnPath)
+		util.OsExitIfErr(e, "remove result file error.")
+	}
+
 	fmt.Printf("transfer done\n")
 }
 
@@ -176,10 +203,6 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, from types
 	nonce, e := client.GetNextNonce(from)
 	util.OsExitIfErr(e, "get nonce of from %v", from)
 
-	resultFs, e := os.OpenFile(resultPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
-	util.OsExitIfErr(e, "failed to create file")
-	defer resultFs.Close()
-
 	lastPointStr, e := ioutil.ReadFile(resultPath)
 	util.OsExitIfErr(e, "read result content error")
 
@@ -188,6 +211,17 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, from types
 	} else {
 		lastPoint = -1
 	}
+	return
+}
+
+func creatRecordFiles() (resultFs, warnFs *os.File) {
+	resultFs, e := os.OpenFile(resultPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
+	util.OsExitIfErr(e, "failed to create file")
+	// defer resultFs.Close()
+
+	warnFs, e = os.OpenFile(warnPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
+	util.OsExitIfErr(e, "failed to create file")
+	// defer warnFs.Close()
 	return
 }
 
