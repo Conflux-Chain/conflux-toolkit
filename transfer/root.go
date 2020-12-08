@@ -77,12 +77,15 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 	receiverInfos := mustParseInput()
 	client, am, lastPoint, from, nonce, chainID, epochHeight := initialEnviorment()
-	checkBalance(client, from, receiverInfos)
+
+	fmt.Println("===== Check if balance enough =====")
+	checkBalance(client, warnFs, from, receiverInfos)
 
 	sendCount := uint(0)
 	failCount := uint(0)
 	rpcBatchElems := []clientRpc.BatchElem{}
 
+	fmt.Println("===== Start batch transfer =====")
 	for i, v := range receiverInfos {
 		if types.NormalAddress != v.Address.GetAddressType() {
 			if failCount == 0 {
@@ -149,7 +152,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		util.OsExitIfErr(e, "Remove result file error.")
 	}
 
-	fmt.Printf("Transfer done!\n")
+	fmt.Printf("===== Transfer done! =====\n")
 }
 
 func createTx(from types.Address, receiver Receiver, nonce *big.Int, chainID uint, epochHeight uint64) *types.UnsignedTransaction {
@@ -254,7 +257,7 @@ func creatRecordFiles() (resultFs, warnFs *os.File) {
 	return
 }
 
-func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver) {
+func checkBalance(client *sdk.Client, warnFs *os.File, from types.Address, receivers []Receiver) {
 	balance, err := client.GetBalance(from)
 	util.OsExitIfErr(err, "Failed to get balance")
 
@@ -274,7 +277,9 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver) 
 		if len(lastPointStr) == 0 {
 			os.Remove(resultPath)
 		}
-		util.OsExit("Out of balance, need %v, has %v", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
+		msg := fmt.Sprintf("Out of balance, need %v, has %v", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
+		warnFs.WriteString(msg)
+		util.OsExit(msg)
 	}
 	fmt.Printf("Balance is enough, need %v, has %v\n", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
 }
