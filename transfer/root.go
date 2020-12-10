@@ -91,8 +91,8 @@ func doTransfers(cmd *cobra.Command, args []string) {
 			if failCount == 0 {
 				warnFs.WriteString("=======invalid addresses==========\n")
 			}
-			msg := fmt.Sprintf("%v. *****Invalid address: %v", i+1, v.Address)
-			fmt.Println(msg)
+			msg := fmt.Sprintf("%v. *****Invalid address: %v\n", i+1, v.Address)
+			fmt.Print(msg)
 			_, err := warnFs.WriteString(msg)
 			if err != nil {
 				fmt.Printf("Fail to write warn msg \" %v \"\n", msg)
