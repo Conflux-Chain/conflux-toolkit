@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Conflux-Chain/conflux-toolkit/account"
+	"github.com/Conflux-Chain/conflux-toolkit/contract/abi"
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
@@ -24,16 +25,25 @@ func AddContractVar(cmd *cobra.Command) {
 
 // MustCreateContract creates an instance to interact with contract.
 func MustCreateContract(abiJSON string) *sdk.Contract {
+	return MustGetContract(abiJSON, contract)
+}
+
+// MustGetContract creates an instance to interact with contract at contractAddress.
+func MustGetContract(abiJSON string, contractAddress string) *sdk.Contract {
 	client := rpc.MustCreateClient()
 	client.SetAccountManager(account.DefaultAccountManager)
 
-	contract, err := client.GetContract([]byte(abiJSON), types.NewAddress(contract))
+	contract, err := client.GetContract([]byte(abiJSON), types.NewAddress(contractAddress))
 	if err != nil {
 		fmt.Println("Failed to create contract instance:", err.Error())
 		os.Exit(1)
 	}
 
 	return contract
+}
+
+func MustGetCTokenContract(contractAddress string) *sdk.Contract {
+	return MustGetContract(abi.GetCTokenABI(), contractAddress)
 }
 
 // MustCall call contract for the specified method and arguments.
