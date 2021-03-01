@@ -56,18 +56,18 @@ func setBounds(cmd *cobra.Command, args []string) {
 
 	// ensure owner privilege
 	owner := common.MustCallAddress(contract, "owner")
-	if owner != from {
+	if owner != from.GetHexAddress() {
 		fmt.Println("Owner privilege required:", owner)
 		os.Exit(1)
 	}
 
 	option := types.ContractMethodSendOption{
-		From:     types.NewAddress(from),
+		From:     from,
 		GasPrice: types.NewBigIntByRaw(account.MustParsePrice()),
 	}
 
 	password := account.MustInputPassword("Enter password: ")
-	account.DefaultAccountManager.Unlock(types.Address(from), password)
+	account.DefaultAccountManager.Unlock(*from, password)
 
 	gasTotal := util.MustParseBigInt(gasTotalCfx, 18)
 	collateralTotal := util.MustParseBigInt(collateralTotalCfx, 18)

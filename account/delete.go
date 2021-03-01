@@ -3,7 +3,6 @@ package account
 import (
 	"fmt"
 
-	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +22,7 @@ func deleteAccount(cmd *cobra.Command, args []string) {
 	account := MustParseAccount()
 	password := MustInputPassword("Enter password: ")
 
-	if err := am.Delete(types.Address(account), password); err != nil {
+	if err := am.Delete(*account, password); err != nil {
 		fmt.Println("Failed to delete account:", err.Error())
 		return
 	}

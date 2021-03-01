@@ -3,6 +3,7 @@ package rpc
 import (
 	"fmt"
 
+	"github.com/Conflux-Chain/conflux-toolkit/account"
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/emirpasic/gods/maps/linkedhashmap"
@@ -26,7 +27,7 @@ func getSponsorInfo(cmd *cobra.Command, args []string) {
 	client := MustCreateClient()
 	defer client.Close()
 
-	info, err := client.GetSponsorInfo(types.Address(address))
+	info, err := client.GetSponsorInfo(*account.MustNewAccount(address))
 	if err != nil {
 		fmt.Println("Failed to get sponsor info:", err.Error())
 		return

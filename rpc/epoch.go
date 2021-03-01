@@ -42,5 +42,5 @@ func mustGetEpochNumber(client *sdk.Client, epoch *types.Epoch) *big.Int {
 		os.Exit(1)
 	}
 
-	return num
+	return num.ToInt()
 }
