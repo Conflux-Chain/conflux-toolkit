@@ -56,9 +56,10 @@ func DisplayValueWithUnit(drip *big.Int) string {
 func OsExitIfErr(err error, format string, a ...interface{}) {
 	if err != nil {
 		fmt.Printf(format, a...)
-		fmt.Printf("--- error: %v", err)
+		fmt.Printf("--- error: %v", err.Error())
 		fmt.Println()
-		os.Exit(1)
+		// os.Exit(1)
+		panic(0)
 	}
 }
 
@@ -66,5 +67,6 @@ func OsExitIfErr(err error, format string, a ...interface{}) {
 func OsExit(format string, a ...interface{}) {
 	fmt.Printf(format, a...)
 	fmt.Println()
-	os.Exit(1)
+	// os.Exit(1)
+	panic(0)
 }

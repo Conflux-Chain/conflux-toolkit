@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/Conflux-Chain/conflux-toolkit/util"
 	common "github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
+	"github.com/Conflux-Chain/go-conflux-sdk/types"
+	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/howeyc/gopass"
 	"github.com/spf13/cobra"
 )
@@ -42,16 +46,15 @@ func AddGasPriceVar(cmd *cobra.Command) {
 }
 
 // MustParseAccount parse account from input parameter.
-func MustParseAccount() string {
+func MustParseAccount() *types.Address {
 	accountIndex, err := strconv.Atoi(account)
 	if err != nil {
-		return strings.ToLower(account)
+		return MustNewAccount(strings.ToLower(account))
 	}
 
 	accounts := listAccountsAsc()
 	if len(accounts) == 0 {
-		fmt.Println("No account found!")
-		os.Exit(1)
+		panic("No account found!")
 	}
 
 	if accountIndex >= len(accounts) {
@@ -61,7 +64,7 @@ func MustParseAccount() string {
 
 	fmt.Println("Account:", accounts[accountIndex])
 
-	return accounts[accountIndex]
+	return &accounts[accountIndex]
 }
 
 // MustParsePrice parse gas price from input parameter.
@@ -80,14 +83,16 @@ func MustParseValue() *big.Int {
 	return common.MustParseBigInt(ValueCfx, 18)
 }
 
-func listAccountsAsc() []string {
-	var accounts []string
+func listAccountsAsc() []types.Address {
+	var accounts []types.Address
 
 	for _, addr := range am.List() {
-		accounts = append(accounts, addr.String())
+		accounts = append(accounts, addr)
 	}
 
-	sort.Strings(accounts)
+	sort.Slice(accounts, func(i, j int) bool {
+		return strings.Compare(accounts[i].GetHexAddress(), accounts[j].GetHexAddress()) == -1
+	})
 
 	return accounts
 }
@@ -117,4 +122,26 @@ func MustInputPassword(prompt string) string {
 	}
 
 	return string(passwd)
+}
+
+// MustNewAccount must create conflux address by base32 string or hex40 string.
+func MustNewAccount(base32OrHex string, networkID ...uint32) *types.Address {
+	hexPattern := `(?i)^0x[a-f0-9]{40}$`
+	base32Pattern := `(?i)^(cfx|net).*:\w{42}$`
+
+	if ok, _ := regexp.Match(hexPattern, []byte(base32OrHex)); ok {
+		_networkID := uint32(0)
+		if len(networkID) > 0 {
+			_networkID = networkID[0]
+		}
+		_account := cfxaddress.MustNewFromHex(base32OrHex, _networkID)
+		return &_account
+	}
+
+	if ok, _ := regexp.Match(base32Pattern, []byte(base32OrHex)); ok {
+		_account := cfxaddress.MustNewFromBase32(base32OrHex)
+		return &_account
+	}
+	util.OsExit("input %v need be base32 string or hex40 string,", base32OrHex, networkID)
+	panic(0)
 }

@@ -23,7 +23,9 @@ func MustCreateClient() *sdk.Client {
 
 // MustCreateClientWithRetry creates an connection to full node.
 func MustCreateClientWithRetry(retryCount int) *sdk.Client {
-	client, err := sdk.NewClientWithRetry(url, retryCount, time.Second)
+	client, err := sdk.NewClient(url, sdk.ClientOption{
+		RetryCount:    retryCount,
+		RetryInterval: time.Second})
 	if err != nil {
 		fmt.Println("Failed to create client:", err.Error())
 		os.Exit(1)
