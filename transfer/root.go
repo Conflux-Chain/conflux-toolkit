@@ -15,11 +15,12 @@ import (
 	"github.com/Conflux-Chain/conflux-toolkit/account"
 	"github.com/Conflux-Chain/conflux-toolkit/contract/common"
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
-	"github.com/Conflux-Chain/conflux-toolkit/types/cfxaddress"
+
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
+	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/shopspring/decimal"
@@ -81,7 +82,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	}()
 
 	receiverInfos := mustParseInput()
-	client, am, lastPoint, from, nonce, chainID, epochHeight := initialEnviorment()
+	client, am, lastPoint, from, nonce, chainID, netwrkID, epochHeight := initialEnviorment()
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
@@ -108,7 +109,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		// sign
 		encoded, err := am.SignTransaction(*tx)
 		util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
-		fmt.Printf("%v. Sign send %v to %v with value %v done\n", i+1, tokenSymbol, v.Address,
+		fmt.Printf("%v. Sign send %v to %v with value %v done\n", i+1, tokenSymbol, account.MustNewAccount("0x"+v.Address.GetHexAddress(), netwrkID),
 			util.DisplayValueWithUnit(calcValue(receiveNumber, v.Weight)))
 
 		// push to batch item array
@@ -160,7 +161,7 @@ func sendOneBatch(client *sdk.Client, rpcBatchElems []clientRpc.BatchElem, lastI
 	rpcBatchElems = []clientRpc.BatchElem{}
 }
 
-func selectToken() (symbol string, contractAddress types.Address) {
+func selectToken() (symbol string, contractAddress *types.Address) {
 
 	url := "https://confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
 
@@ -187,7 +188,7 @@ func selectToken() (symbol string, contractAddress types.Address) {
 	fmt.Println("These are the token list you could batch transfer:")
 	fmt.Printf("%v. token: %v\n", 1, "CFX")
 	for i := range tokenList.List {
-		tokenList.List[i].Address = cfxaddress.FormatAddressToHex(tokenList.List[i].Address)
+		// tokenList.List[i].Address = cfxaddress.FormatAddress(tokenList.List[i].Address)
 		fmt.Printf("%v. token: %v, contract address: %v\n", i+2, tokenList.List[i].Symbol, tokenList.List[i].Address)
 	}
 
@@ -200,7 +201,7 @@ func selectToken() (symbol string, contractAddress types.Address) {
 	if token.Symbol[0:1] != "c" {
 		util.OsExit("Not support %v currently, please select token start with 'c', such as cUsdt, cMoon and so on.", token.Symbol)
 	}
-	return token.Symbol, token.Address
+	return token.Symbol, &token.Address
 }
 
 func getSelectedIndex(tokensCount int) int {
@@ -223,33 +224,33 @@ func getSelectedIndex(tokensCount int) int {
 	return selectedIdx
 }
 
-func createTx(from types.Address, receiver Receiver, token types.Address, nonce *big.Int, chainID uint, epochHeight uint64) *types.UnsignedTransaction {
-
+func createTx(from types.Address, receiver Receiver, token *types.Address, nonce *big.Int, chainID uint32, epochHeight uint64) *types.UnsignedTransaction {
+	// fmt.Printf("create tx %v,%v", from, receiver)
 	tx := &types.UnsignedTransaction{}
 
 	tx.From = &from
 	tx.GasPrice = types.NewBigIntByRaw(account.MustParsePrice())
-	tx.ChainID = types.NewUint(chainID)
+	tx.ChainID = types.NewUint(uint(chainID))
 	tx.EpochHeight = types.NewUint64(epochHeight)
 	tx.Nonce = types.NewBigIntByRaw(nonce)
 
 	amountInDrip := calcValue(receiveNumber, receiver.Weight)
-	if token == "" {
+	if token == nil {
 		tx.To = &receiver.Address
 		tx.Value = types.NewBigIntByRaw(amountInDrip)
 		tx.Gas = defaultGasLimit
 		tx.StorageLimit = types.NewUint64(0)
 	} else {
-		tx.To = &token
+		tx.To = token
 		tx.Value = types.NewBigInt(0)
-		tx.Data = getTransferData(token, receiver.Address, amountInDrip)
+		tx.Data = getTransferData(*token, receiver.Address, amountInDrip)
 	}
 	return tx
 }
 
 func getTransferData(contractAddress types.Address, reciever types.Address, amountInDrip *big.Int) (data hexutil.Bytes) {
 	ctoken := common.MustGetCTokenContract(contractAddress.String())
-	data, err := ctoken.GetData("send", reciever.ToCommonAddress(), amountInDrip, []byte{})
+	data, err := ctoken.GetData("send", reciever.MustGetCommonAddress(), amountInDrip, []byte{})
 	util.OsExitIfErr(err, "failed to get data of send ctoken %v to %v amount %v", contractAddress, reciever, amountInDrip)
 	return data
 }
@@ -282,13 +283,13 @@ func mustParseInput() []Receiver {
 		weight, err := decimal.NewFromString(items[1])
 		util.OsExitIfErr(err, "Parse %v to int error", weight)
 
-		addr := types.Address(items[0])
-		if types.NormalAddress != addr.GetAddressType() {
+		addr := account.MustNewAccount(items[0])
+		if cfxaddress.AddressTypeUser != addr.GetAddressType() {
 			util.OsExit("Found unsupported address %v in line %v", addr, i)
 		}
 
 		info := Receiver{
-			Address: types.Address(items[0]),
+			Address: *account.MustNewAccount(items[0]),
 			Weight:  weight,
 		}
 
@@ -298,30 +299,31 @@ func mustParseInput() []Receiver {
 	return receiverInfos
 }
 
-func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint int, from types.Address, nonce *big.Int, chainID uint, epochHeight uint64) {
+func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint int, from types.Address, nonce *big.Int, chainID, networkID uint32, epochHeight uint64) {
 
 	am = account.DefaultAccountManager
 	client = rpc.MustCreateClientWithRetry(100)
 	client.SetAccountManager(am)
 
-	from = types.Address(account.MustParseAccount())
+	status, err := client.GetStatus()
+	util.OsExitIfErr(err, "Fail to get status")
+	chainID = uint32(status.ChainID)
+	networkID = uint32(status.NetworkID)
 
+	from = *account.MustNewAccount("0x"+account.MustParseAccount().GetHexAddress(), networkID)
 	password := account.MustInputPassword("Enter password: ")
-	err := am.Unlock(from, password)
+	err = am.Unlock(from, password)
 	util.OsExitIfErr(err, "Fail to unlock account")
 	fmt.Println("Account is unlocked")
 
 	// get inital Nonce
-	nonce, e := client.GetNextNonce(from)
+	_nonce, e := client.GetNextNonce(from)
+	nonce = _nonce.ToInt()
 	util.OsExitIfErr(e, "Fail to get nonce of from %v", from)
-
-	status, err := client.GetStatus()
-	util.OsExitIfErr(err, "Fail to get status")
-	chainID = uint(*status.ChainID)
 
 	epoch, err := client.GetEpochNumber(types.EpochLatestState)
 	util.OsExitIfErr(err, "Fail to get epoch")
-	epochHeight = epoch.Uint64()
+	epochHeight = epoch.ToInt().Uint64()
 
 	lastPointStr, e := ioutil.ReadFile(resultPath)
 	util.OsExitIfErr(e, "Fail to read result content")
@@ -345,15 +347,16 @@ func creatRecordFiles() (resultFs *os.File) {
 	return
 }
 
-func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token types.Address) {
+func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address) {
 	var balance *big.Int
 	var err error
-	if token.String() == "" {
-		balance, err = client.GetBalance(from)
+	if token == nil {
+		_balance, err := client.GetBalance(from)
+		balance = _balance.ToInt()
 		util.OsExitIfErr(err, "Failed to get CFX balance of %v", from)
 	} else {
 		contract := common.MustGetCTokenContract(token.String())
-		err = contract.Call(nil, &balance, "balanceOf", *from.ToCommonAddress())
+		err = contract.Call(nil, &balance, "balanceOf", from.MustGetCommonAddress())
 		util.OsExitIfErr(err, "Failed to get token %v balance of %v", token, from)
 	}
 
@@ -373,9 +376,9 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		if len(lastPointStr) == 0 {
 			os.Remove(resultPath)
 		}
-		msg := fmt.Sprintf("Out of balance, need %v, has %v", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
+		msg := fmt.Sprintf("Out balance of %v, need %v, has %v", from, util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
 		// warnFs.WriteString(msg)
 		util.OsExit(msg)
 	}
-	fmt.Printf("Balance is enough, need %v, has %v\n", util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
+	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
 }

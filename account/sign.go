@@ -56,16 +56,16 @@ func init() {
 func sign(cmd *cobra.Command, args []string) {
 	tx := types.UnsignedTransaction{
 		UnsignedTransactionBase: types.UnsignedTransactionBase{
-			From:         types.NewAddress(MustParseAccount()),
-			Nonce:        types.NewBigInt(int64(nonce)),
+			From:         MustParseAccount(),
+			Nonce:        types.NewBigInt(uint64(nonce)),
 			GasPrice:     types.NewBigIntByRaw(MustParsePrice()),
-			Gas:          types.NewBigInt(int64(gasLimit)),
+			Gas:          types.NewBigInt(uint64(gasLimit)),
 			Value:        types.NewBigIntByRaw(MustParseValue()),
 			StorageLimit: types.NewUint64(storageLimit),
 			EpochHeight:  types.NewUint64(epoch),
 			ChainID:      types.NewUint(chain),
 		},
-		To: types.NewAddress(to),
+		To: MustNewAccount(to),
 	}
 
 	if len(data) > 0 {

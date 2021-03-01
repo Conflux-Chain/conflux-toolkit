@@ -16,3 +16,5 @@
 
 keystore/
 tmp/
+
+dist/

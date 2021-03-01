@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	am *sdk.AccountManager = sdk.NewAccountManager("keystore")
+	am *sdk.AccountManager = sdk.NewAccountManager("keystore", 0)
 
 	rootCmd = util.CreateUsageCommand("account", "Account subcommand")
 )

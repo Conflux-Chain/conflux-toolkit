@@ -33,7 +33,8 @@ func MustGetContract(abiJSON string, contractAddress string) *sdk.Contract {
 	client := rpc.MustCreateClient()
 	client.SetAccountManager(account.DefaultAccountManager)
 
-	contract, err := client.GetContract([]byte(abiJSON), types.NewAddress(contractAddress))
+	addr := account.MustNewAccount(contractAddress)
+	contract, err := client.GetContract([]byte(abiJSON), addr)
 	if err != nil {
 		fmt.Println("Failed to create contract instance:", err.Error())
 		os.Exit(1)
@@ -72,7 +73,7 @@ func MustExecuteTx(contract *sdk.Contract, option *types.ContractMethodSendOptio
 	for {
 		time.Sleep(time.Second)
 
-		receipt, err := contract.Client.GetTransactionReceipt(*txHash)
+		receipt, err := contract.Client.GetTransactionReceipt(txHash)
 		if err != nil {
 			fmt.Println("Failed to get receipt:", err.Error())
 			os.Exit(1)

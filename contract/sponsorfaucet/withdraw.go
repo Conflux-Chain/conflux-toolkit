@@ -38,18 +38,18 @@ func withdraw(cmd *cobra.Command, args []string) {
 
 	// ensure owner privilege
 	owner := common.MustCallAddress(contract, "owner")
-	if owner != from {
+	if owner != from.GetHexAddress() {
 		fmt.Println("Owner privilege required:", owner)
 		os.Exit(1)
 	}
 
 	option := types.ContractMethodSendOption{
-		From:     types.NewAddress(from),
+		From:     from,
 		GasPrice: types.NewBigIntByRaw(account.MustParsePrice()),
 	}
 
 	password := account.MustInputPassword("Enter password: ")
-	account.DefaultAccountManager.Unlock(types.Address(from), password)
+	account.DefaultAccountManager.Unlock(*from, password)
 
 	// ensure contract is paused
 	var paused bool
@@ -62,7 +62,7 @@ func withdraw(cmd *cobra.Command, args []string) {
 
 	// withdraw
 	if len(recipient) == 0 {
-		recipient = from
+		recipient = from.GetHexAddress()
 	}
 	amount := account.MustParseValue()
 	if amount.Sign() > 0 {
