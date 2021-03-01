@@ -20,7 +20,6 @@ import (
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
-	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/shopspring/decimal"
@@ -283,10 +282,11 @@ func mustParseInput() []Receiver {
 		weight, err := decimal.NewFromString(items[1])
 		util.OsExitIfErr(err, "Parse %v to int error", weight)
 
-		addr := account.MustNewAccount(items[0])
-		if cfxaddress.AddressTypeUser != addr.GetAddressType() {
-			util.OsExit("Found unsupported address %v in line %v", addr, i)
-		}
+		// don't check account type
+		// addr := account.MustNewAccount(items[0])
+		// if cfxaddress.AddressTypeUser != addr.GetAddressType() {
+		// util.OsExit("Found unsupported address %v in line %v", addr, i)
+		// }
 
 		info := Receiver{
 			Address: *account.MustNewAccount(items[0]),
