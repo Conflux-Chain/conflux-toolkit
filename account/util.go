@@ -124,10 +124,10 @@ func MustInputPassword(prompt string) string {
 	return string(passwd)
 }
 
-// MustNewAccount must create conflux address by base32 string or hex40 string.
+// MustNewAccount must create conflux address by base32 string or hex40 string, if base32OrHex is base32 and networkID is setted it will check if networkID match.
 func MustNewAccount(base32OrHex string, networkID ...uint32) *types.Address {
 	hexPattern := `(?i)^0x[a-f0-9]{40}$`
-	base32Pattern := `(?i)^(cfx|net).*:\w{42}$`
+	base32Pattern := `(?i)^(cfx|cfxtest|net\d+):(type\.user:|type\.builtin:|type\.contract:|type\.null:|)\w{42}$`
 
 	if ok, _ := regexp.Match(hexPattern, []byte(base32OrHex)); ok {
 		_networkID := uint32(0)
@@ -140,6 +140,9 @@ func MustNewAccount(base32OrHex string, networkID ...uint32) *types.Address {
 
 	if ok, _ := regexp.Match(base32Pattern, []byte(base32OrHex)); ok {
 		_account := cfxaddress.MustNewFromBase32(base32OrHex)
+		if len(networkID) > 0 && _account.GetNetworkID() != networkID[0] {
+			util.OsExit("NetworkID of %v is %v, which is not matched with expected networkID %v", base32OrHex, _account.GetNetworkID(), networkID[0])
+		}
 		return &_account
 	}
 	util.OsExit("input %v need be base32 string or hex40 string,", base32OrHex, networkID)

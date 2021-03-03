@@ -5,8 +5,14 @@ import (
 	"math/big"
 	"os"
 
+	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
+)
+
+const (
+	MAINNET = 1029
+	TESTNET = 1
 )
 
 // CreateUsageCommand creates a command to display help.
@@ -32,7 +38,7 @@ func MustParseBigInt(value string, exp int32) *big.Int {
 }
 
 // DisplayValueWithUnit returns the display format for given drip value.
-func DisplayValueWithUnit(drip *big.Int) string {
+func DisplayValueWithUnit(drip *big.Int, tokenSymbol ...string) string {
 	if big.NewInt(1_000).Cmp(drip) > 0 {
 		return fmt.Sprintf("%v Drip", drip)
 	}
@@ -49,24 +55,37 @@ func DisplayValueWithUnit(drip *big.Int) string {
 		return fmt.Sprintf("%v Gdrip", decimal.NewFromBigInt(drip, -9))
 	}
 
-	return fmt.Sprintf("%v CFX", decimal.NewFromBigInt(drip, -18))
+	_tokenSymbol := "CFX"
+	if len(tokenSymbol) > 0 && tokenSymbol[0] != "" {
+		_tokenSymbol = tokenSymbol[0]
+	}
+
+	return fmt.Sprintf("%v %v", decimal.NewFromBigInt(drip, -18), _tokenSymbol)
 }
 
 // OsExitIfErr prints error msg and exit
 func OsExitIfErr(err error, format string, a ...interface{}) {
 	if err != nil {
-		fmt.Printf(format, a...)
-		fmt.Printf("--- error: %v", err.Error())
-		fmt.Println()
-		// os.Exit(1)
-		panic(0)
+		fmt.Printf("\nError: %+v\n", errors.Wrapf(err, format, a...))
+		os.Exit(1)
+	}
+}
+
+func PanicIfErr(err error, format string, a ...interface{}) {
+	if err != nil {
+		errMsg := fmt.Sprintf(format, a...)
+		errMsg += fmt.Sprintf("\nError: %v", err.Error())
+		panic(errMsg)
 	}
 }
 
 // OsExit prints msg and exit
 func OsExit(format string, a ...interface{}) {
-	fmt.Printf(format, a...)
-	fmt.Println()
-	// os.Exit(1)
-	panic(0)
+	fmt.Printf("\nError: %+v\n", errors.Errorf(format, a...))
+	os.Exit(1)
+}
+
+func Panic(format string, a ...interface{}) {
+	errMsg := fmt.Sprintf(format, a...)
+	panic(errMsg)
 }
