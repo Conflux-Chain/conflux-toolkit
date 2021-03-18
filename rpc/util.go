@@ -1,10 +1,9 @@
 package rpc
 
 import (
-	"fmt"
-	"os"
 	"time"
 
+	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/spf13/cobra"
 )
@@ -27,8 +26,9 @@ func MustCreateClientWithRetry(retryCount int) *sdk.Client {
 		RetryCount:    retryCount,
 		RetryInterval: time.Second})
 	if err != nil {
-		fmt.Println("Failed to create client:", err.Error())
-		os.Exit(1)
+		util.OsExitIfErr(err, "Failed to create client")
+		// fmt.Println("Failed to create client:", err.Error())
+		// os.Exit(1)
 	}
 
 	return client

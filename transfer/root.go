@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -85,11 +86,11 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
-	fmt.Printf("Selected token: %v, %v\n", tokenSymbol, tokenAddress)
+	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, tokenAddress)
 
 	// check balance
 	fmt.Println("===== Check if balance enough =====")
-	checkBalance(client, from, receiverInfos, tokenAddress)
+	checkBalance(client, from, receiverInfos, tokenAddress, tokenSymbol)
 
 	sendCount := uint(0)
 	rpcBatchElems := []clientRpc.BatchElem{}
@@ -108,7 +109,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		// sign
 		encoded, err := am.SignTransaction(*tx)
 		util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
-		fmt.Printf("%v. Sign send %v to %v with value %v done\n", i+1, tokenSymbol, account.MustNewAccount("0x"+v.Address.GetHexAddress(), netwrkID),
+		fmt.Printf("%v. Sign send %v to %v with value %v done\n", i+1, tokenSymbol, account.MustNewAccount(v.Address, netwrkID),
 			util.DisplayValueWithUnit(calcValue(receiveNumber, v.Weight)))
 
 		// push to batch item array
@@ -155,7 +156,7 @@ func sendOneBatch(client *sdk.Client, rpcBatchElems []clientRpc.BatchElem, lastI
 	fmt.Printf("Batch send %v tx, total send %v done, failed %v, wait last be executed: %v\n", len(rpcBatchElems), lastIndex+1-len(fails), len(fails), lastHash)
 
 	_, e = client.WaitForTransationReceipt(*lastHash, time.Second)
-	util.OsExitIfErr(e, "Fail to get result of tx hash %+v", lastHash)
+	util.OsExitIfErr(e, "Failed to get result of tx hash %+v", lastHash)
 	// reset count and batch elem result
 	rpcBatchElems = []clientRpc.BatchElem{}
 }
@@ -167,11 +168,11 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	req, _ := http.NewRequest("GET", url, nil)
 
 	res, err := http.DefaultClient.Do(req)
-	util.OsExitIfErr(err, "failed to get response by url %v", url)
+	util.OsExitIfErr(err, "Failed to get response by url %v", url)
 
 	defer res.Body.Close()
 	body, err := ioutil.ReadAll(res.Body)
-	util.OsExitIfErr(err, "failed to read token list from %v", res.Body)
+	util.OsExitIfErr(err, "Failed to read token list from %v", res.Body)
 
 	// fmt.Println(string(body))
 	tokenList := struct {
@@ -234,15 +235,16 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 	tx.Nonce = types.NewBigIntByRaw(nonce)
 
 	amountInDrip := calcValue(receiveNumber, receiver.Weight)
+	to := account.MustNewAccount(receiver.Address, chainID)
 	if token == nil {
-		tx.To = &receiver.Address
+		tx.To = to
 		tx.Value = types.NewBigIntByRaw(amountInDrip)
 		tx.Gas = defaultGasLimit
 		tx.StorageLimit = types.NewUint64(0)
 	} else {
 		tx.To = token
 		tx.Value = types.NewBigInt(0)
-		tx.Data = getTransferData(*token, receiver.Address, amountInDrip)
+		tx.Data = getTransferData(*token, *to, amountInDrip)
 	}
 	return tx
 }
@@ -250,7 +252,7 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 func getTransferData(contractAddress types.Address, reciever types.Address, amountInDrip *big.Int) (data hexutil.Bytes) {
 	ctoken := common.MustGetCTokenContract(contractAddress.String())
 	data, err := ctoken.GetData("send", reciever.MustGetCommonAddress(), amountInDrip, []byte{})
-	util.OsExitIfErr(err, "failed to get data of send ctoken %v to %v amount %v", contractAddress, reciever, amountInDrip)
+	util.OsExitIfErr(err, "Failed to get data of send ctoken %v to %v amount %v", contractAddress, reciever, amountInDrip)
 	return data
 }
 
@@ -261,7 +263,7 @@ func calcValue(numberPerTime decimal.Decimal, weigh decimal.Decimal) *big.Int {
 func mustParseInput() []Receiver {
 	// read csv file
 	content, err := ioutil.ReadFile(receiverListFile)
-	util.OsExitIfErr(err, "read file %v error", receiverListFile)
+	util.OsExitIfErr(err, "Failed to read file %v", receiverListFile)
 
 	// parse to struct
 	lines := strings.Split(string(content), "\n")
@@ -279,17 +281,19 @@ func mustParseInput() []Receiver {
 			util.OsExit("Line %v: %#v column number is %v, which shoule be 2\n", i, v, len(items))
 		}
 
+		isDecimal, err := regexp.Match(`^\d+\.?\d*$`, []byte(items[1]))
+		// fmt.Printf("regex check %v with pattern %v result: %v, %v", items[1], `^\d+\.?\d*$`, isDecimal, err)
+		util.OsExitIfErr(err, "Failed to regex check %v ", items[1])
+		if !isDecimal {
+			util.OsExit("Number %v is unsupported, only supports pure number format, scientific notation like 1e18 and other representation format are unspported", items[1])
+		}
+
 		weight, err := decimal.NewFromString(items[1])
-		util.OsExitIfErr(err, "Parse %v to int error", weight)
+		util.OsExitIfErr(err, "Failed to parse %v to int", weight)
 
-		// don't check account type
-		// addr := account.MustNewAccount(items[0])
-		// if cfxaddress.AddressTypeUser != addr.GetAddressType() {
-		// util.OsExit("Found unsupported address %v in line %v", addr, i)
-		// }
-
+		account.MustNewAccount(items[0])
 		info := Receiver{
-			Address: *account.MustNewAccount(items[0]),
+			Address: items[0],
 			Weight:  weight,
 		}
 
@@ -306,27 +310,27 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint 
 	client.SetAccountManager(am)
 
 	status, err := client.GetStatus()
-	util.OsExitIfErr(err, "Fail to get status")
+	util.OsExitIfErr(err, "Failed to get status")
 	chainID = uint32(status.ChainID)
 	networkID = uint32(status.NetworkID)
 
 	from = *account.MustNewAccount("0x"+account.MustParseAccount().GetHexAddress(), networkID)
 	password := account.MustInputPassword("Enter password: ")
 	err = am.Unlock(from, password)
-	util.OsExitIfErr(err, "Fail to unlock account")
-	fmt.Println("Account is unlocked")
+	util.OsExitIfErr(err, "Failed to unlock account")
+	fmt.Printf("Account %v is unlocked\n", from)
 
 	// get inital Nonce
 	_nonce, e := client.GetNextNonce(from)
 	nonce = _nonce.ToInt()
-	util.OsExitIfErr(e, "Fail to get nonce of from %v", from)
+	util.OsExitIfErr(e, "Failed to get nonce of from %v", from)
 
 	epoch, err := client.GetEpochNumber(types.EpochLatestState)
-	util.OsExitIfErr(err, "Fail to get epoch")
+	util.OsExitIfErr(err, "Failed to get epoch")
 	epochHeight = epoch.ToInt().Uint64()
 
 	lastPointStr, e := ioutil.ReadFile(resultPath)
-	util.OsExitIfErr(e, "Fail to read result content")
+	util.OsExitIfErr(e, "Failed to read result content")
 
 	if len(lastPointStr) > 0 {
 		lastPoint, e = strconv.Atoi(string(lastPointStr))
@@ -347,7 +351,7 @@ func creatRecordFiles() (resultFs *os.File) {
 	return
 }
 
-func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address) {
+func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address, tokenSymbol string) {
 	var balance *big.Int
 	var err error
 	if token == nil {
@@ -357,7 +361,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	} else {
 		contract := common.MustGetCTokenContract(token.String())
 		err = contract.Call(nil, &balance, "balanceOf", from.MustGetCommonAddress())
-		util.OsExitIfErr(err, "Failed to get token %v balance of %v", token, from)
+		util.OsExitIfErr(err, "Failed to get token %v balance of %v", tokenSymbol, from)
 	}
 
 	need := big.NewInt(0)
@@ -376,9 +380,9 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		if len(lastPointStr) == 0 {
 			os.Remove(resultPath)
 		}
-		msg := fmt.Sprintf("Out balance of %v, need %v, has %v", from, util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
+		msg := fmt.Sprintf("Out balance of %v, need %v, has %v", from, util.DisplayValueWithUnit(need, tokenSymbol), util.DisplayValueWithUnit(balance, tokenSymbol))
 		// warnFs.WriteString(msg)
 		util.OsExit(msg)
 	}
-	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(need), util.DisplayValueWithUnit(balance))
+	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(need, tokenSymbol), util.DisplayValueWithUnit(balance, tokenSymbol))
 }
