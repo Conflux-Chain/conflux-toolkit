@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
+	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
 	"github.com/spf13/cobra"
 )
@@ -54,6 +55,7 @@ func init() {
 }
 
 func sign(cmd *cobra.Command, args []string) {
+	to := cfxaddress.MustNew(to)
 	tx := types.UnsignedTransaction{
 		UnsignedTransactionBase: types.UnsignedTransactionBase{
 			From:         MustParseAccount(),
@@ -65,7 +67,7 @@ func sign(cmd *cobra.Command, args []string) {
 			EpochHeight:  types.NewUint64(epoch),
 			ChainID:      types.NewUint(chain),
 		},
-		To: MustNewAccount(to),
+		To: &to,
 	}
 
 	if len(data) > 0 {
