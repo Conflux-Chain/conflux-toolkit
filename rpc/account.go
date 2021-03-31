@@ -3,9 +3,9 @@ package rpc
 import (
 	"fmt"
 
-	"github.com/Conflux-Chain/conflux-toolkit/account"
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
+	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/emirpasic/gods/maps/linkedhashmap"
 	"github.com/spf13/cobra"
 )
@@ -27,7 +27,7 @@ func getAccountInfo(cmd *cobra.Command, args []string) {
 	client := MustCreateClient()
 	defer client.Close()
 
-	info, err := client.GetAccountInfo(*account.MustNewAccount(address))
+	info, err := client.GetAccountInfo(cfxaddress.MustNew(address))
 	if err != nil {
 		fmt.Println("Failed to get account info:", err.Error())
 		return
