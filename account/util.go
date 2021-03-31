@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/Conflux-Chain/conflux-toolkit/util"
 	common "github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
@@ -49,7 +47,8 @@ func AddGasPriceVar(cmd *cobra.Command) {
 func MustParseAccount() *types.Address {
 	accountIndex, err := strconv.Atoi(account)
 	if err != nil {
-		return MustNewAccount(strings.ToLower(account))
+		addr := cfxaddress.MustNew(strings.ToLower(account))
+		return &addr
 	}
 
 	accounts := listAccountsAsc()
@@ -122,29 +121,4 @@ func MustInputPassword(prompt string) string {
 	}
 
 	return string(passwd)
-}
-
-// MustNewAccount must create conflux address by base32 string or hex40 string, if base32OrHex is base32 and networkID is setted it will check if networkID match.
-func MustNewAccount(base32OrHex string, networkID ...uint32) *types.Address {
-	hexPattern := `(?i)^0x[a-f0-9]{40}$`
-	base32Pattern := `(?i)^(cfx|cfxtest|net\d+):(type\.user:|type\.builtin:|type\.contract:|type\.null:|)\w{42}$`
-
-	if ok, _ := regexp.Match(hexPattern, []byte(base32OrHex)); ok {
-		_networkID := uint32(0)
-		if len(networkID) > 0 {
-			_networkID = networkID[0]
-		}
-		_account := cfxaddress.MustNewFromHex(base32OrHex, _networkID)
-		return &_account
-	}
-
-	if ok, _ := regexp.Match(base32Pattern, []byte(base32OrHex)); ok {
-		_account := cfxaddress.MustNewFromBase32(base32OrHex)
-		if len(networkID) > 0 && _account.GetNetworkID() != networkID[0] {
-			util.OsExit("NetworkID of %v is %v, which is not matched with expected networkID %v", base32OrHex, _account.GetNetworkID(), networkID[0])
-		}
-		return &_account
-	}
-	util.OsExit("input %v need be base32 string or hex40 string,", base32OrHex, networkID)
-	panic(0)
 }

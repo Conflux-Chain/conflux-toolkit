@@ -21,6 +21,7 @@ import (
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
+	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/shopspring/decimal"
@@ -82,7 +83,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	}()
 
 	receiverInfos := mustParseInput()
-	client, am, lastPoint, from, nonce, chainID, netwrkID, epochHeight := initialEnviorment()
+	client, am, lastPoint, from, nonce, chainID, networkID, epochHeight := initialEnviorment()
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
@@ -109,7 +110,8 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		// sign
 		encoded, err := am.SignTransaction(*tx)
 		util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
-		fmt.Printf("%v. Sign send %v to %v with value %v done\n", i+1, tokenSymbol, account.MustNewAccount(v.Address, netwrkID),
+
+		fmt.Printf("%v. Sign send %v to %v with value %v done\n", i+1, tokenSymbol, cfxaddress.MustNew(v.Address, networkID),
 			util.DisplayValueWithUnit(calcValue(receiveNumber, v.Weight)))
 
 		// push to batch item array
@@ -235,16 +237,16 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 	tx.Nonce = types.NewBigIntByRaw(nonce)
 
 	amountInDrip := calcValue(receiveNumber, receiver.Weight)
-	to := account.MustNewAccount(receiver.Address, chainID)
+	to := cfxaddress.MustNew(receiver.Address, chainID)
 	if token == nil {
-		tx.To = to
+		tx.To = &to
 		tx.Value = types.NewBigIntByRaw(amountInDrip)
 		tx.Gas = defaultGasLimit
 		tx.StorageLimit = types.NewUint64(0)
 	} else {
 		tx.To = token
 		tx.Value = types.NewBigInt(0)
-		tx.Data = getTransferData(*token, *to, amountInDrip)
+		tx.Data = getTransferData(*token, to, amountInDrip)
 	}
 	return tx
 }
@@ -291,7 +293,7 @@ func mustParseInput() []Receiver {
 		weight, err := decimal.NewFromString(items[1])
 		util.OsExitIfErr(err, "Failed to parse %v to int", weight)
 
-		account.MustNewAccount(items[0])
+		cfxaddress.MustNew(items[0])
 		info := Receiver{
 			Address: items[0],
 			Weight:  weight,
@@ -314,7 +316,7 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint 
 	chainID = uint32(status.ChainID)
 	networkID = uint32(status.NetworkID)
 
-	from = *account.MustNewAccount("0x"+account.MustParseAccount().GetHexAddress(), networkID)
+	from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), networkID)
 	password := account.MustInputPassword("Enter password: ")
 	err = am.Unlock(from, password)
 	util.OsExitIfErr(err, "Failed to unlock account")
@@ -334,6 +336,7 @@ func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint 
 
 	if len(lastPointStr) > 0 {
 		lastPoint, e = strconv.Atoi(string(lastPointStr))
+		util.OsExitIfErr(e, "Failed to parse result content")
 	} else {
 		lastPoint = -1
 	}

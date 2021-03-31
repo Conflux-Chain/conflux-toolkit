@@ -12,6 +12,7 @@ import (
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
+	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/spf13/cobra"
 )
 
@@ -33,8 +34,8 @@ func MustGetContract(abiJSON string, contractAddress string) *sdk.Contract {
 	client := rpc.MustCreateClient()
 	client.SetAccountManager(account.DefaultAccountManager)
 
-	addr := account.MustNewAccount(contractAddress)
-	contract, err := client.GetContract([]byte(abiJSON), addr)
+	addr := cfxaddress.MustNew(contractAddress)
+	contract, err := client.GetContract([]byte(abiJSON), &addr)
 	if err != nil {
 		fmt.Println("Failed to create contract instance:", err.Error())
 		os.Exit(1)
