@@ -73,7 +73,6 @@ func init() {
 
 	rootCmd.PersistentFlags().UintVar(&perBatchNum, "batch", 1000, "send tx number per batch")
 	formatReceiverNumber(receiveNumberInStr)
-
 }
 
 func formatReceiverNumber(receiveNumberInStr string) {
@@ -104,6 +103,8 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	tokenSymbol, tokenAddress := selectToken()
 	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, tokenAddress)
 
+	estimates := estimateGasAndCollateral(tokenAddress)
+
 	// check balance
 	fmt.Println("===== Check if balance enough =====")
 	checkBalance(env.client, env.from, receiverInfos, tokenAddress, tokenSymbol)
@@ -115,7 +116,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		batchNum := int(math.Min(float64(perBatchNum), float64(len(receiverInfos))))
 		env.lastPoint += batchNum
 
-		elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol)
+		elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, estimates)
 		sendOneBatch(env.client, elems)
 		receiverInfos = receiverInfos[len(elems):]
 	}
@@ -168,13 +169,31 @@ func initialEnviorment() {
 	}
 }
 
-func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Address, tokenSymbol string) (elems []clientRpc.BatchElem) {
+func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
+	if tokenAddress == nil {
+		return types.Estimate{
+			GasLimit:              defaultGasLimit,
+			GasUsed:               defaultGasLimit,
+			StorageCollateralized: types.NewBigInt(0),
+		}
+	}
+	data := getTransferData(*tokenAddress, env.from, big.NewInt(0)).String()
+	callReq := types.CallRequest{
+		To:   tokenAddress,
+		Data: &data,
+	}
+	sm, err := env.client.EstimateGasAndCollateral(callReq)
+	util.OsExitIfErr(err, "failed get estimate of %v", callReq)
+	return sm
+}
+
+func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Address, tokenSymbol string, estimates types.Estimate) (elems []clientRpc.BatchElem) {
 	// env.lastPoint is start with -1, so env.lastPoint+1 is actual index, env.lastPoint + 2 is the index count from 1
 	startCnt := env.lastPoint + 2 - len(oneBatchReceiver)
 
 	rpcBatchElems := []clientRpc.BatchElem{}
 	for i, v := range oneBatchReceiver {
-		tx := createTx(env.from, v, tokenAddress, env.nonce)
+		tx := createTx(env.from, v, tokenAddress, env.nonce, estimates)
 		err := env.client.ApplyUnsignedTransactionDefault(tx)
 		util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
 
@@ -285,7 +304,7 @@ func getSelectedIndex(tokensCount int) int {
 	return selectedIdx
 }
 
-func createTx(from types.Address, receiver Receiver, token *types.Address, nonce *big.Int) *types.UnsignedTransaction {
+func createTx(from types.Address, receiver Receiver, token *types.Address, nonce *big.Int, estimates types.Estimate) *types.UnsignedTransaction {
 	tx := &types.UnsignedTransaction{}
 
 	tx.From = &from
@@ -299,13 +318,16 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 	if token == nil {
 		tx.To = &to
 		tx.Value = types.NewBigIntByRaw(amountInDrip)
-		tx.Gas = defaultGasLimit
 		tx.StorageLimit = types.NewUint64(0)
 	} else {
 		tx.To = token
 		tx.Value = types.NewBigInt(0)
 		tx.Data = getTransferData(*token, to, amountInDrip)
 	}
+
+	tx.Gas = estimates.GasLimit
+	tx.StorageLimit = types.NewUint64(estimates.StorageCollateralized.ToInt().Uint64())
+
 	return tx
 }
 
@@ -401,7 +423,11 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	need := big.NewInt(0)
 	for _, v := range receivers {
 		receiverNeed := calcValue(receiveNumber, v.Weight)
-		gasFee := big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
+		gasFee := big.NewInt(0)
+		if token == nil {
+			gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
+		}
+
 		need = need.Add(need, receiverNeed)
 		need = need.Add(need, gasFee)
 	}

@@ -8,7 +8,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var url string
+var (
+	url         string
+	clientCache *sdk.Client
+)
 
 // AddURLVar adds URL variable for specified command
 func AddURLVar(cmd *cobra.Command) {
@@ -22,14 +25,16 @@ func MustCreateClient() *sdk.Client {
 
 // MustCreateClientWithRetry creates an connection to full node.
 func MustCreateClientWithRetry(retryCount int) *sdk.Client {
-	client, err := sdk.NewClient(url, sdk.ClientOption{
-		RetryCount:    retryCount,
-		RetryInterval: time.Second})
-	if err != nil {
-		util.OsExitIfErr(err, "Failed to create client")
-		// fmt.Println("Failed to create client:", err.Error())
-		// os.Exit(1)
+	if clientCache == nil {
+		var err error
+		clientCache, err = sdk.NewClient(url, sdk.ClientOption{
+			RetryCount:    retryCount,
+			RetryInterval: time.Second})
+		if err != nil {
+			util.OsExitIfErr(err, "Failed to create client")
+			// fmt.Println("Failed to create client:", err.Error())
+			// os.Exit(1)
+		}
 	}
-
-	return client
+	return clientCache
 }
