@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"sync"
 	"time"
 
 	"github.com/Conflux-Chain/conflux-toolkit/util"
@@ -10,7 +11,8 @@ import (
 
 var (
 	url         string
-	clientCache *sdk.Client
+	clientCache map[string]*sdk.Client = make(map[string]*sdk.Client)
+	clientMutex sync.Mutex
 )
 
 // AddURLVar adds URL variable for specified command
@@ -25,16 +27,18 @@ func MustCreateClient() *sdk.Client {
 
 // MustCreateClientWithRetry creates an connection to full node.
 func MustCreateClientWithRetry(retryCount int) *sdk.Client {
-	if clientCache == nil {
-		var err error
-		clientCache, err = sdk.NewClient(url, sdk.ClientOption{
-			RetryCount:    retryCount,
-			RetryInterval: time.Second})
-		if err != nil {
-			util.OsExitIfErr(err, "Failed to create client")
-			// fmt.Println("Failed to create client:", err.Error())
-			// os.Exit(1)
+	if clientCache[url] == nil {
+		clientMutex.Lock()
+		defer clientMutex.Unlock()
+		if clientCache[url] == nil {
+			var err error
+			clientCache[url], err = sdk.NewClient(url, sdk.ClientOption{
+				RetryCount:    retryCount,
+				RetryInterval: time.Second})
+			if err != nil {
+				util.OsExitIfErr(err, "Failed to create client")
+			}
 		}
 	}
-	return clientCache
+	return clientCache[url]
 }
