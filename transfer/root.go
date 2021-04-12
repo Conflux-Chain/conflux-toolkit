@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"math/big"
 	"net/http"
 	"os"
@@ -29,6 +30,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type enviorment struct {
+	client             *sdk.Client
+	am                 *sdk.AccountManager
+	lastPoint          int
+	from               types.Address
+	nonce              *big.Int
+	chainID, networkID uint32
+	epochHeight        uint64
+}
+
 var (
 	rootCmd = &cobra.Command{
 		Use:   "transfer",
@@ -36,8 +47,8 @@ var (
 		Run:   doTransfers,
 	}
 	// path for record result
-	resultPath      = "./transfer_result.txt"
-	warnPath        = "./transfer_warn.txt"
+	resultPath = "./transfer_result.txt"
+
 	defaultGasLimit = types.NewBigInt(21000)
 
 	// command flags
@@ -45,6 +56,7 @@ var (
 	receiveNumber    decimal.Decimal
 
 	perBatchNum uint
+	env         enviorment
 )
 
 func init() {
@@ -75,43 +87,121 @@ func SetParent(parent *cobra.Command) {
 }
 
 func doTransfers(cmd *cobra.Command, args []string) {
+	fmt.Println("Initial enviorment")
+	initialEnviorment()
 
 	resultFs := creatRecordFiles()
 	defer func() {
 		resultFs.Close()
-		// warnFs.Close()
+		e := os.Remove(resultPath)
+		util.OsExitIfErr(e, "Remove result file error.")
 	}()
 
-	receiverInfos := mustParseInput()
-	client, am, lastPoint, from, nonce, chainID, networkID, epochHeight := initialEnviorment()
+	receiverInfos := mustParseReceivers()
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
 	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, tokenAddress)
 
+	estimates := estimateGasAndCollateral(tokenAddress)
+
 	// check balance
 	fmt.Println("===== Check if balance enough =====")
-	checkBalance(client, from, receiverInfos, tokenAddress, tokenSymbol)
-
-	sendCount := uint(0)
-	rpcBatchElems := []clientRpc.BatchElem{}
+	checkBalance(env.client, env.from, receiverInfos, tokenAddress, tokenSymbol)
 
 	// transfer
 	fmt.Println("===== Start batch transfer =====")
-	for i, v := range receiverInfos {
-		if i <= lastPoint {
-			continue
-		}
+	receiverInfos = receiverInfos[(env.lastPoint + 1):]
+	for len(receiverInfos) > 0 {
+		batchNum := int(math.Min(float64(perBatchNum), float64(len(receiverInfos))))
+		env.lastPoint += batchNum
 
-		tx := createTx(from, v, tokenAddress, nonce, chainID, epochHeight)
-		err := client.ApplyUnsignedTransactionDefault(tx)
+		elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, estimates)
+		sendOneBatch(env.client, elems)
+		receiverInfos = receiverInfos[len(elems):]
+	}
+
+	fmt.Printf("===== Transfer done! =====\n")
+}
+
+func initialEnviorment() {
+
+	env.am = account.DefaultAccountManager
+	env.client = rpc.MustCreateClientWithRetry(100)
+	env.client.SetAccountManager(env.am)
+
+	status, err := env.client.GetStatus()
+	util.OsExitIfErr(err, "Failed to get status")
+
+	env.chainID = uint32(status.ChainID)
+	env.networkID = uint32(status.NetworkID)
+
+	env.from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), env.networkID)
+	password := account.MustInputPassword("Enter password: ")
+
+	err = env.am.Unlock(env.from, password)
+	util.OsExitIfErr(err, "Failed to unlock account")
+
+	fmt.Printf("Account %v is unlocked\n", env.from)
+
+	// get inital Nonce
+	_nonce, e := env.client.GetNextNonce(env.from)
+	env.nonce = _nonce.ToInt()
+	util.OsExitIfErr(e, "Failed to get nonce of from %v", env.from)
+
+	epoch, err := env.client.GetEpochNumber(types.EpochLatestState)
+	util.OsExitIfErr(err, "Failed to get epoch")
+	env.epochHeight = epoch.ToInt().Uint64()
+
+	if _, err := os.Stat(resultPath); os.IsNotExist(err) {
+		env.lastPoint = -1
+		return
+	}
+
+	lastPointStr, e := ioutil.ReadFile(resultPath)
+	util.OsExitIfErr(e, "Failed to read result content")
+
+	if len(lastPointStr) > 0 {
+		env.lastPoint, e = strconv.Atoi(string(lastPointStr))
+		util.OsExitIfErr(e, "Failed to parse result content")
+	} else {
+		env.lastPoint = -1
+	}
+}
+
+func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
+	if tokenAddress == nil {
+		return types.Estimate{
+			GasLimit:              defaultGasLimit,
+			GasUsed:               defaultGasLimit,
+			StorageCollateralized: types.NewBigInt(0),
+		}
+	}
+	data := getTransferData(*tokenAddress, env.from, big.NewInt(0)).String()
+	callReq := types.CallRequest{
+		To:   tokenAddress,
+		Data: &data,
+	}
+	sm, err := env.client.EstimateGasAndCollateral(callReq)
+	util.OsExitIfErr(err, "failed get estimate of %v", callReq)
+	return sm
+}
+
+func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Address, tokenSymbol string, estimates types.Estimate) (elems []clientRpc.BatchElem) {
+	// env.lastPoint is start with -1, so env.lastPoint+1 is actual index, env.lastPoint + 2 is the index count from 1
+	startCnt := env.lastPoint + 2 - len(oneBatchReceiver)
+
+	rpcBatchElems := []clientRpc.BatchElem{}
+	for i, v := range oneBatchReceiver {
+		tx := createTx(env.from, v, tokenAddress, env.nonce, estimates)
+		err := env.client.ApplyUnsignedTransactionDefault(tx)
 		util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
 
 		// sign
-		encoded, err := am.SignTransaction(*tx)
+		encoded, err := env.am.SignTransaction(*tx)
 		util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
 
-		fmt.Printf("%v. Sign send %v to %v with value %v done\n", i+1, tokenSymbol, cfxaddress.MustNew(v.Address, networkID),
+		fmt.Printf("%v. Sign send %v to %v with value %v done\n", startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
 			util.DisplayValueWithUnit(calcValue(receiveNumber, v.Weight)))
 
 		// push to batch item array
@@ -121,21 +211,12 @@ func doTransfers(cmd *cobra.Command, args []string) {
 			Args:   []interface{}{"0x" + hex.EncodeToString(encoded)},
 			Result: &batchElemResult,
 		})
-
-		sendCount++
-		if sendCount == perBatchNum || i == len(receiverInfos)-1 {
-			sendOneBatch(client, rpcBatchElems, i)
-			sendCount = 0
-		}
-		nonce = nonce.Add(nonce, big.NewInt(1))
+		env.nonce = env.nonce.Add(env.nonce, big.NewInt(1))
 	}
-
-	e := os.Remove(resultPath)
-	util.OsExitIfErr(e, "Remove result file error.")
-	fmt.Printf("===== Transfer done! =====\n")
+	return rpcBatchElems
 }
 
-func sendOneBatch(client *sdk.Client, rpcBatchElems []clientRpc.BatchElem, lastIndex int) {
+func sendOneBatch(client *sdk.Client, rpcBatchElems []clientRpc.BatchElem) {
 	e := client.BatchCallRPC(rpcBatchElems)
 	util.OsExitIfErr(e, "Batch send error")
 
@@ -149,18 +230,17 @@ func sendOneBatch(client *sdk.Client, rpcBatchElems []clientRpc.BatchElem, lastI
 		fmt.Printf("Fails details:%+v\n", fails)
 	}
 
-	// fmt.Printf("rpcBatchElems: %+v\n", rpcBatchElems)
 	// save record
-	ioutil.WriteFile(resultPath, []byte(strconv.Itoa(lastIndex)), 0777)
+	ioutil.WriteFile(resultPath, []byte(strconv.Itoa(env.lastPoint)), 0777)
+
 	// wait last packed
 	lastHash := rpcBatchElems[len(rpcBatchElems)-1].Result.(*types.Hash)
 
-	fmt.Printf("Batch send %v tx, total send %v done, failed %v, wait last be executed: %v\n", len(rpcBatchElems), lastIndex+1-len(fails), len(fails), lastHash)
+	fmt.Printf("Batch send %v tx, total send %v done, failed %v, wait last be executed: %v\n", len(rpcBatchElems), env.lastPoint+1-len(fails), len(fails), lastHash)
 
 	_, e = client.WaitForTransationReceipt(*lastHash, time.Second)
+	fmt.Printf("The last tx %v of this batch is executed\n\n", lastHash)
 	util.OsExitIfErr(e, "Failed to get result of tx hash %+v", lastHash)
-	// reset count and batch elem result
-	rpcBatchElems = []clientRpc.BatchElem{}
 }
 
 func selectToken() (symbol string, contractAddress *types.Address) {
@@ -176,7 +256,6 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	body, err := ioutil.ReadAll(res.Body)
 	util.OsExitIfErr(err, "Failed to read token list from %v", res.Body)
 
-	// fmt.Println(string(body))
 	tokenList := struct {
 		Total int `json:"total"`
 		List  []struct {
@@ -190,7 +269,6 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	fmt.Println("These are the token list you could batch transfer:")
 	fmt.Printf("%v. token: %v\n", 1, "CFX")
 	for i := range tokenList.List {
-		// tokenList.List[i].Address = cfxaddress.FormatAddress(tokenList.List[i].Address)
 		fmt.Printf("%v. token: %v, contract address: %v\n", i+2, tokenList.List[i].Symbol, tokenList.List[i].Address)
 	}
 
@@ -226,28 +304,30 @@ func getSelectedIndex(tokensCount int) int {
 	return selectedIdx
 }
 
-func createTx(from types.Address, receiver Receiver, token *types.Address, nonce *big.Int, chainID uint32, epochHeight uint64) *types.UnsignedTransaction {
-	// fmt.Printf("create tx %v,%v", from, receiver)
+func createTx(from types.Address, receiver Receiver, token *types.Address, nonce *big.Int, estimates types.Estimate) *types.UnsignedTransaction {
 	tx := &types.UnsignedTransaction{}
 
 	tx.From = &from
 	tx.GasPrice = types.NewBigIntByRaw(account.MustParsePrice())
-	tx.ChainID = types.NewUint(uint(chainID))
-	tx.EpochHeight = types.NewUint64(epochHeight)
+	tx.ChainID = types.NewUint(uint(env.chainID))
+	tx.EpochHeight = types.NewUint64(env.epochHeight)
 	tx.Nonce = types.NewBigIntByRaw(nonce)
 
 	amountInDrip := calcValue(receiveNumber, receiver.Weight)
-	to := cfxaddress.MustNew(receiver.Address, chainID)
+	to := cfxaddress.MustNew(receiver.Address, env.chainID)
 	if token == nil {
 		tx.To = &to
 		tx.Value = types.NewBigIntByRaw(amountInDrip)
-		tx.Gas = defaultGasLimit
 		tx.StorageLimit = types.NewUint64(0)
 	} else {
 		tx.To = token
 		tx.Value = types.NewBigInt(0)
 		tx.Data = getTransferData(*token, to, amountInDrip)
 	}
+
+	tx.Gas = estimates.GasLimit
+	tx.StorageLimit = types.NewUint64(estimates.StorageCollateralized.ToInt().Uint64())
+
 	return tx
 }
 
@@ -262,7 +342,7 @@ func calcValue(numberPerTime decimal.Decimal, weigh decimal.Decimal) *big.Int {
 	return receiveNumber.Mul(weigh).Mul(decimal.NewFromInt(1e18)).BigInt()
 }
 
-func mustParseInput() []Receiver {
+func mustParseReceivers() []Receiver {
 	// read csv file
 	content, err := ioutil.ReadFile(receiverListFile)
 	util.OsExitIfErr(err, "Failed to read file %v", receiverListFile)
@@ -270,6 +350,8 @@ func mustParseInput() []Receiver {
 	// parse to struct
 	lines := strings.Split(string(content), "\n")
 	receiverInfos := []Receiver{}
+
+	invalids := []string{}
 
 	for i, v := range lines {
 		v = strings.Replace(v, "\t", " ", -1)
@@ -284,16 +366,24 @@ func mustParseInput() []Receiver {
 		}
 
 		isDecimal, err := regexp.Match(`^\d+\.?\d*$`, []byte(items[1]))
-		// fmt.Printf("regex check %v with pattern %v result: %v, %v", items[1], `^\d+\.?\d*$`, isDecimal, err)
 		util.OsExitIfErr(err, "Failed to regex check %v ", items[1])
 		if !isDecimal {
-			util.OsExit("Number %v is unsupported, only supports pure number format, scientific notation like 1e18 and other representation format are unspported", items[1])
+			invalids = append(invalids, fmt.Sprintf("Line %v: Number %v is unsupported, only supports pure number format, scientific notation like 1e18 and other representation format are unspported", i+1, items[1]))
+			continue
 		}
 
 		weight, err := decimal.NewFromString(items[1])
-		util.OsExitIfErr(err, "Failed to parse %v to int", weight)
+		if err != nil {
+			invalids = append(invalids, fmt.Sprintf("Line %v: Failed to parse %v to int, errmsg:%v", i+1, items[1], err.Error()))
+			continue
+		}
 
-		cfxaddress.MustNew(items[0])
+		_, err = cfxaddress.New(items[0])
+		if err != nil {
+			invalids = append(invalids, fmt.Sprintf("Line %v: Failed to create cfx address by %v, Errmsg: %v", i+1, items[0], err.Error()))
+			continue
+		}
+
 		info := Receiver{
 			Address: items[0],
 			Weight:  weight,
@@ -301,56 +391,19 @@ func mustParseInput() []Receiver {
 
 		receiverInfos = append(receiverInfos, info)
 	}
+
+	if len(invalids) > 0 {
+		errMsg := fmt.Sprintf("Invalid Recevier info exists:\n%v", strings.Join(invalids, "\n"))
+		util.OsExit(errMsg)
+	}
+
 	fmt.Printf("Receiver list count :%+v\n", len(receiverInfos))
 	return receiverInfos
-}
-
-func initialEnviorment() (client *sdk.Client, am *sdk.AccountManager, lastPoint int, from types.Address, nonce *big.Int, chainID, networkID uint32, epochHeight uint64) {
-
-	am = account.DefaultAccountManager
-	client = rpc.MustCreateClientWithRetry(100)
-	client.SetAccountManager(am)
-
-	status, err := client.GetStatus()
-	util.OsExitIfErr(err, "Failed to get status")
-	chainID = uint32(status.ChainID)
-	networkID = uint32(status.NetworkID)
-
-	from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), networkID)
-	password := account.MustInputPassword("Enter password: ")
-	err = am.Unlock(from, password)
-	util.OsExitIfErr(err, "Failed to unlock account")
-	fmt.Printf("Account %v is unlocked\n", from)
-
-	// get inital Nonce
-	_nonce, e := client.GetNextNonce(from)
-	nonce = _nonce.ToInt()
-	util.OsExitIfErr(e, "Failed to get nonce of from %v", from)
-
-	epoch, err := client.GetEpochNumber(types.EpochLatestState)
-	util.OsExitIfErr(err, "Failed to get epoch")
-	epochHeight = epoch.ToInt().Uint64()
-
-	lastPointStr, e := ioutil.ReadFile(resultPath)
-	util.OsExitIfErr(e, "Failed to read result content")
-
-	if len(lastPointStr) > 0 {
-		lastPoint, e = strconv.Atoi(string(lastPointStr))
-		util.OsExitIfErr(e, "Failed to parse result content")
-	} else {
-		lastPoint = -1
-	}
-	return
 }
 
 func creatRecordFiles() (resultFs *os.File) {
 	resultFs, e := os.OpenFile(resultPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
 	util.OsExitIfErr(e, "Failed to create file")
-	// defer resultFs.Close()
-
-	// warnFs, e = os.OpenFile(warnPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
-	// util.OsExitIfErr(e, "Failed to create file")
-	// defer warnFs.Close()
 	return
 }
 
@@ -369,9 +422,12 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 
 	need := big.NewInt(0)
 	for _, v := range receivers {
-		// receiverNeed := big.NewInt(1).Mul(big.NewInt(int64(v.Weight*receiveNumber)), big.NewInt(1e18))
 		receiverNeed := calcValue(receiveNumber, v.Weight)
-		gasFee := big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
+		gasFee := big.NewInt(0)
+		if token == nil {
+			gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
+		}
+
 		need = need.Add(need, receiverNeed)
 		need = need.Add(need, gasFee)
 	}
@@ -384,7 +440,6 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 			os.Remove(resultPath)
 		}
 		msg := fmt.Sprintf("Out balance of %v, need %v, has %v", from, util.DisplayValueWithUnit(need, tokenSymbol), util.DisplayValueWithUnit(balance, tokenSymbol))
-		// warnFs.WriteString(msg)
 		util.OsExit(msg)
 	}
 	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(need, tokenSymbol), util.DisplayValueWithUnit(balance, tokenSymbol))

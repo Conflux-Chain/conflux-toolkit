@@ -20,3 +20,6 @@ tmp/
 dist/
 transfer_result.txt
 __debug_bin
+
+.vscode
+.DS_Store
