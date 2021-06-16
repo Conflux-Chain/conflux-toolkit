@@ -278,8 +278,8 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 		return
 	}
 	token := tokenList.List[selectedIdx-2]
-	if token.Symbol[0:1] != "c" {
-		util.OsExit("Not support %v currently, please select token start with 'c', such as cUsdt, cMoon and so on.", token.Symbol)
+	if token.Symbol != "FC" && token.Symbol[0:1] != "c" {
+		util.OsExit("Not support %v currently, please select token FC or starts with 'c', such as cUsdt, cMoon and so on.", token.Symbol)
 	}
 	return token.Symbol, &token.Address
 }
