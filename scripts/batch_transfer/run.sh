@@ -3,6 +3,7 @@ cd $(dirname $0)
 echo "- 当前工作目录: $(pwd)"
 # rm -rf ./keystore
 
+echo "\n*******************检查空投列表*******************"
 # check if airdrop list empty
 if [ -s 1_填写空投列表.csv ]; then
     echo "- 检查空投列表完成"
@@ -11,6 +12,7 @@ else
     exit 1
 fi
 
+echo "\n*****************选择转账使用账户*****************"
 while [ "$address" == "" ]; do
 
     # 列出本地地址
@@ -83,6 +85,7 @@ done
 echo "- 将使用该地址空投：${address}"
 
 # select network type, mainnet or testnet?
+echo "\n*******************选择网络类型*******************"
 echo "- 请手动输入您要空投到的网络类型：测试网输入test, tethys主网输入tethys"
 echo "注意：cToken发送只支持tethys主网"
 
@@ -111,29 +114,36 @@ do
     esac
 done
 
+echo "\n*******************选择gasPrice*******************"
 echo "- 默认 gasPrice 是 1K drip，当网络拥堵时需要调高gasPrice，输入 \"N\" 跳过设置；输入 \"Y\" 提高gasPrice至 1G drip "
-read -r -p "" input
 while
     true
     read -r -p "" input
 do
     case $input in
     "N")
+        echo "- 您选择使用1K drip gasPrice"
         gasPrice=1000
         break
         ;;
-    *) ;;
 
     "Y")
+        echo "- 您选择使用1G drip gasPrice"
         gasPrice=1000000000
         break
+        ;;
+
+    *)
+        echo "输入无效，请重新输入"
         ;;
     esac
 done
 
+echo "\n*******************输入账户密码*******************"
 # start airdrop
 echo "- 将根据空投列表文件 \"1_填写空投列表.csv\" 开始空投"
 echo "- 请根据提示输入账户密码继续\n"
+
 ./conflux-toolkit transfer --receivers "./1_填写空投列表.csv" --from ${address} --price ${gasPrice} --weight 1 --url ${url} --batch 500
 #  <<EOF
 # 123

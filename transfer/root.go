@@ -110,15 +110,21 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		// startPosition := env.lastPoint
 		env.lastPoint += batchNum
 
+		// refresh nonce, because last batch may be has error like "tx pool is full", so refresh it
+		_nonce, err := env.client.GetNextNonce(env.from)
+		util.OsExitIfErr(err, "failed get nonce")
+		env.nonce = _nonce.ToInt()
+
+		fmt.Printf("\n===== Start send one batch with %v tx=====\n", batchNum)
 		elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, estimates)
 		oneBatchSummary := sendOneBatchAndWaitReceipt(elems)
 		batchSummary.Merge(oneBatchSummary)
 		receiverInfos = receiverInfos[len(elems):]
+		fmt.Printf("===== Send one batch with %v tx done!=====\n", batchNum)
 	}
 
-	fmt.Printf("===== All transfer done =====\n")
+	fmt.Printf("\n===== All transfer done =====\n")
 	fmt.Printf("Summares:\n%v\n", &batchSummary)
-
 	fmt.Printf("===== Complete! =====\n")
 }
 
@@ -180,9 +186,16 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 		To:   tokenAddress,
 		Data: &data,
 	}
-	sm, err := env.client.EstimateGasAndCollateral(callReq)
+	em, err := env.client.EstimateGasAndCollateral(callReq)
 	util.OsExitIfErr(err, "failed get estimate of %v", callReq)
-	return sm
+
+	// double gasPrice to avoid transaction fail because of "out of gas"
+	_doubledGasLimit := new(big.Int).Mul(em.GasLimit.ToInt(), big.NewInt(2))
+	if _doubledGasLimit.Cmp(big.NewInt(15000000)) > 0 {
+		_doubledGasLimit = big.NewInt(15000000)
+	}
+	em.GasLimit = types.NewBigIntByRaw(_doubledGasLimit)
+	return em
 }
 
 func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Address, tokenSymbol string, estimates types.Estimate) (elems []clientRpc.BatchElem) {
@@ -226,7 +239,7 @@ func sendOneBatchAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummar
 	waitLastReceipt(rpcBatchElems)
 	batchGetReceipts(rpcBatchElems, &summary)
 
-	fmt.Printf("\nBatch sent %v tx, failed %v\n", len(rpcBatchElems), summary.GetTotalFailCount())
+	fmt.Printf("Batch sent and executed %v tx done, failed %v\n", len(rpcBatchElems), summary.GetTotalFailCount())
 	if len(summary.failInfos) > 0 {
 		fmt.Printf("Fails details:%+v\n", strings.Join(summary.failInfos, "\n"))
 	}
@@ -235,12 +248,12 @@ func sendOneBatchAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummar
 
 func batchSend(rpcBatchElems []clientRpc.BatchElem) {
 	// wait response
-	fmt.Printf("\nSending the batch transactions, please wait response")
+	// fmt.Printf("\nSending the batch transactions, please wait response")
 
 	hashDoneChan := util.WaitSigAndPrintDot()
 	e := env.client.BatchCallRPC(rpcBatchElems)
 	hashDoneChan <- nil
-	fmt.Printf("\nReceived send response\n")
+	// fmt.Printf("\nReceived send response\n")
 	util.OsExitIfErr(e, "Batch send error")
 }
 
@@ -342,8 +355,13 @@ func batchGetReceipts(rpcBatchElems []clientRpc.BatchElem, summary *BatchSummary
 }
 
 func selectToken() (symbol string, contractAddress *types.Address) {
+	networkId, err := env.client.GetNetworkID()
+	util.OsExitIfErr(err, "Failed to get networkID")
 
 	url := "https://confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+	if networkId == util.TESTNET {
+		url = "https://testnet.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+	}
 
 	req, _ := http.NewRequest("GET", url, nil)
 
@@ -423,19 +441,7 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 		tx.Data = getTransferData(*token, to, amountInDrip)
 	}
 
-	// double gasPrice to avoid transaction fail because of "out of gas"
-	_gasLimit := new(big.Int).Mul(estimates.GasLimit.ToInt(), big.NewInt(2))
-	if _gasLimit.Cmp(big.NewInt(15000000)) > 0 {
-		_gasLimit = big.NewInt(15000000)
-	}
-
-	// _gasLimit = estimates.GasLimit.ToInt().Mul(estimates.GasLimit.ToInt(), big.NewInt(2))
-	// if tx.Nonce.String()[4] == '1' {
-	// 	_gasLimit = big.NewInt(16000000000)
-	// }
-
-	// fmt.Printf("estimates.GasLimit %v, _gasLimit %v\n", estimates.GasLimit, _gasLimit)
-	tx.Gas = (*hexutil.Big)(_gasLimit)
+	tx.Gas = estimates.GasLimit
 	tx.StorageLimit = types.NewUint64(estimates.StorageCollateralized.ToInt().Uint64())
 
 	return tx
@@ -518,51 +524,98 @@ func creatRecordFiles() (resultFs *os.File) {
 }
 
 func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address, tokenSymbol string) {
-	var balance *big.Int
-	var err error
-	if token == nil {
-		_balance, err := client.GetBalance(from)
-		balance = _balance.ToInt()
-		util.OsExitIfErr(err, "Failed to get CFX balance of %v", from)
-	} else {
+
+	var (
+		cfxBalance   *big.Int = big.NewInt(0)
+		tokenBalance *big.Int = big.NewInt(0)
+
+		perTxGasNeed     *big.Int = new(big.Int).Mul(account.MustParsePrice(), defaultGasLimit.ToInt())
+		perTxStorageNeed *big.Int = big.NewInt(0)
+
+		receiveNeed *big.Int = big.NewInt(0)
+		gasNeed     *big.Int = big.NewInt(0)
+		storageNeed *big.Int = big.NewInt(0)
+	)
+
+	_balance, err := client.GetBalance(from)
+	cfxBalance = _balance.ToInt()
+	util.OsExitIfErr(err, "Failed to get CFX balance of %v", from)
+
+	if token != nil {
 		contract := common.MustGetCTokenContract(token.String())
-		err = contract.Call(nil, &balance, "balanceOf", from.MustGetCommonAddress())
+		err := contract.Call(nil, &tokenBalance, "balanceOf", from.MustGetCommonAddress())
 		util.OsExitIfErr(err, "Failed to get token %v balance of %v", tokenSymbol, from)
+
+		_price := (*hexutil.Big)(account.MustParsePrice())
+		em := estimateGasAndCollateral(token)
+		aginstResp, err := client.CheckBalanceAgainstTransaction(from, *token, em.GasLimit, _price, em.StorageCollateralized)
+		util.OsExitIfErr(err, "Failed to check balance against tx")
+
+		// needPayGas = aginstResp.WillPayTxFee
+		// needPayStorage = aginstResp.WillPayCollateral
+		if aginstResp.WillPayTxFee {
+			perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
+		}
+		if aginstResp.WillPayCollateral {
+			perTxStorageNeed = new(big.Int).Mul(account.MustParsePrice(), em.StorageCollateralized.ToInt())
+		}
 	}
 
-	need := big.NewInt(0)
 	for _, v := range receivers {
 		receiverNeed := calcValue(weight, v.AmountInCfx)
-		gasFee := big.NewInt(0)
-		if token == nil {
-			gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
-		}
-		// TODO: check if sponsor when token transfer
+		// gasFee := big.NewInt(0)
+		// if token == nil {
+		// 	gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
+		// }
 
-		need = need.Add(need, receiverNeed)
-		need = need.Add(need, gasFee)
+		receiveNeed = receiveNeed.Add(receiveNeed, receiverNeed)
+		gasNeed = gasNeed.Add(gasNeed, perTxGasNeed)
+		storageNeed = storageNeed.Add(storageNeed, perTxStorageNeed)
 	}
 
-	if balance.Cmp(need) < 0 {
-		lastPointStr, e := ioutil.ReadFile(resultPath)
-		util.OsExitIfErr(e, "Read result content error")
-
-		if len(lastPointStr) == 0 {
-			os.Remove(resultPath)
+	if token == nil {
+		cfxNeed := big.NewInt(0).Add(receiveNeed, gasNeed)
+		cfxNeed = big.NewInt(0).Add(cfxNeed, storageNeed)
+		if cfxBalance.Cmp(cfxNeed) < 0 {
+			clearCacheFile()
+			msg := fmt.Sprintf("Balance of %v is not enough, need %v, has %v",
+				from, util.DisplayValueWithUnit(receiveNeed), util.DisplayValueWithUnit(cfxBalance))
+			util.OsExit(msg)
 		}
-		msg := fmt.Sprintf("Out balance of %v, need %v, has %v", from, util.DisplayValueWithUnit(need, tokenSymbol), util.DisplayValueWithUnit(balance, tokenSymbol))
-		util.OsExit(msg)
+	} else {
+		cfxNeed := big.NewInt(0).Add(gasNeed, storageNeed)
+		if cfxBalance.Cmp(cfxNeed) < 0 || tokenBalance.Cmp(receiveNeed) < 0 {
+			clearCacheFile()
+			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas,"+
+				"%v need %v, has %v, CFX need %v, has %v",
+				tokenSymbol, from,
+				tokenSymbol, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(tokenBalance, tokenSymbol),
+				util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance),
+			)
+			util.OsExit(msg)
+		}
 	}
-	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(need, tokenSymbol), util.DisplayValueWithUnit(balance, tokenSymbol))
+
+	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(cfxBalance, tokenSymbol))
+}
+
+func clearCacheFile() {
+	lastPointStr, e := ioutil.ReadFile(resultPath)
+	util.OsExitIfErr(e, "Read result content error")
+
+	if len(lastPointStr) == 0 {
+		os.Remove(resultPath)
+	}
+
 }
 
 // ======= Fail Message =======
 func failSentTx(i int, err error) string {
-	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v\n", i, "send tx", err)
+	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v", i, "send tx", err)
 }
 
 func failGetTxReceipt(i int, err error) string {
-	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v\n", i, "get tx receipt", err)
+	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v", i, "get tx receipt", err)
 }
 
 func failTxReceiptNull(i int) string {
@@ -570,7 +623,7 @@ func failTxReceiptNull(i int) string {
 }
 
 func failExecuteTx(i int, errMsg *string) string {
-	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v\n", i, "tx execute failed", util.GetStringVal(errMsg))
+	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v", i, "tx execute failed", util.GetStringVal(errMsg))
 }
 
 // func getPosOfAll(startPosition int, delta int) int {
