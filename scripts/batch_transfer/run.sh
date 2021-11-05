@@ -41,7 +41,7 @@ while [ "$address" == "" ]; do
                 if [ "$address" != "" ]; then
                     # address=CFX${address#*CFX}
                     address=${address%%[*}
-                    address=`echo $address | xargs`
+                    address=$(echo $address | xargs)
                     # echo "您选择了地址: ${address}"
                     needImport=false
                     break
@@ -93,13 +93,15 @@ do
     case $input in
     "test")
         echo "- 您选择的是测试网"
-        url="ws://testnet-rpc.conflux-chain.org.cn/ws/v2"
+        # url="ws://test.confluxrpc.com"
+        url="https://test.confluxrpc.com"
         break
         ;;
 
     "tethys")
         echo "- 您选择的是Tethys主网"
-        url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
+        # url="ws://main.confluxrpc.com/ws"
+        url="https://main.confluxrpc.com"
         break
         ;;
 
@@ -109,10 +111,30 @@ do
     esac
 done
 
+echo "- 默认 gasPrice 是 1K drip，当网络拥堵时需要调高gasPrice，输入 \"N\" 跳过设置；输入 \"Y\" 提高gasPrice至 1G drip "
+read -r -p "" input
+while
+    true
+    read -r -p "" input
+do
+    case $input in
+    "N")
+        gasPrice=1000
+        break
+        ;;
+    *) ;;
+
+    "Y")
+        gasPrice=1000000000
+        break
+        ;;
+    esac
+done
+
 # start airdrop
 echo "- 将根据空投列表文件 \"1_填写空投列表.csv\" 开始空投"
 echo "- 请根据提示输入账户密码继续\n"
-./conflux-toolkit transfer --receivers "./1_填写空投列表.csv" --from ${address} --number 1 --url ${url} --batch 1000
+./conflux-toolkit transfer --receivers "./1_填写空投列表.csv" --from ${address} --price ${gasPrice} --weight 1 --url ${url} --batch 500
 #  <<EOF
 # 123
 # EOF

@@ -6,6 +6,6 @@ import (
 
 // Receiver represents transfer receiver infomation
 type Receiver struct {
-	Address string
-	Weight  decimal.Decimal
+	Address     string
+	AmountInCfx decimal.Decimal
 }

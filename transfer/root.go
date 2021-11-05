@@ -53,7 +53,7 @@ var (
 
 	// command flags
 	receiverListFile string
-	receiveNumber    decimal.Decimal
+	weight           decimal.Decimal
 
 	perBatchNum uint
 	env         enviorment
@@ -67,18 +67,19 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&receiverListFile, "receivers", "", "receiver list file path")
 	rootCmd.MarkPersistentFlagRequired("receivers")
 
-	receiveNumberInStr := ""
-	rootCmd.PersistentFlags().StringVar(&receiveNumberInStr, "number", "1", "send value in CFX")
-	rootCmd.MarkPersistentFlagRequired("number")
+	// the weight of send, the actual send amount is weight * amount
+	sentWeightInStr := ""
+	rootCmd.PersistentFlags().StringVar(&sentWeightInStr, "weight", "1", "send weight, the actual send amount is weight * amount")
+	rootCmd.MarkPersistentFlagRequired("weight")
 
 	rootCmd.PersistentFlags().UintVar(&perBatchNum, "batch", 1000, "send tx number per batch")
-	formatReceiverNumber(receiveNumberInStr)
+	formatReceiverNumber(sentWeightInStr)
 }
 
-func formatReceiverNumber(receiveNumberInStr string) {
+func formatReceiverNumber(sentWeightInStr string) {
 	var err error
-	receiveNumber, err = decimal.NewFromString(receiveNumberInStr)
-	util.OsExitIfErr(err, "receiveNumber %v is not a number", receiveNumberInStr)
+	weight, err = decimal.NewFromString(sentWeightInStr)
+	util.OsExitIfErr(err, "receiveNumber %v is not a number", sentWeightInStr)
 }
 
 // SetParent sets parent command
@@ -121,7 +122,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		receiverInfos = receiverInfos[len(elems):]
 	}
 
-	fmt.Printf("===== Transfer done! =====\n")
+	fmt.Printf("===== All transfer done! =====\n")
 }
 
 func initialEnviorment() {
@@ -202,7 +203,7 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 		util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
 
 		fmt.Printf("%v. Sign send %v to %v with value %v done\n", startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
-			util.DisplayValueWithUnit(calcValue(receiveNumber, v.Weight)))
+			util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)))
 
 		// push to batch item array
 		batchElemResult := types.Hash("")
@@ -236,10 +237,15 @@ func sendOneBatch(client *sdk.Client, rpcBatchElems []clientRpc.BatchElem) {
 	// wait last packed
 	lastHash := rpcBatchElems[len(rpcBatchElems)-1].Result.(*types.Hash)
 
-	fmt.Printf("Batch send %v tx, total send %v done, failed %v, wait last be executed: %v\n", len(rpcBatchElems), env.lastPoint+1-len(fails), len(fails), lastHash)
+	fmt.Printf("Batch sent %v tx, total sent %v, failed %v, wait last be executed: %v, please wait ...\n", len(rpcBatchElems), env.lastPoint+1-len(fails), len(fails), lastHash)
 
+	// wait last packed
+	doneChan := make(chan interface{})
+	util.WaitSigAndPrintDot(doneChan)
 	_, e = client.WaitForTransationReceipt(*lastHash, time.Second)
-	fmt.Printf("The last tx %v of this batch is executed\n\n", lastHash)
+	doneChan <- nil
+
+	fmt.Printf("\nThe last tx %v of this batch is executed\n\n", lastHash)
 	util.OsExitIfErr(e, "Failed to get result of tx hash %+v", lastHash)
 }
 
@@ -313,7 +319,7 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 	tx.EpochHeight = types.NewUint64(env.epochHeight)
 	tx.Nonce = types.NewBigIntByRaw(nonce)
 
-	amountInDrip := calcValue(receiveNumber, receiver.Weight)
+	amountInDrip := calcValue(weight, receiver.AmountInCfx)
 	to := cfxaddress.MustNew(receiver.Address, env.chainID)
 	if token == nil {
 		tx.To = &to
@@ -339,7 +345,7 @@ func getTransferData(contractAddress types.Address, reciever types.Address, amou
 }
 
 func calcValue(numberPerTime decimal.Decimal, weigh decimal.Decimal) *big.Int {
-	return receiveNumber.Mul(weigh).Mul(decimal.NewFromInt(1e18)).BigInt()
+	return weight.Mul(weigh).Mul(decimal.NewFromInt(1e18)).BigInt()
 }
 
 func mustParseReceivers() []Receiver {
@@ -372,7 +378,7 @@ func mustParseReceivers() []Receiver {
 			continue
 		}
 
-		weight, err := decimal.NewFromString(items[1])
+		amountInCfx, err := decimal.NewFromString(items[1])
 		if err != nil {
 			invalids = append(invalids, fmt.Sprintf("Line %v: Failed to parse %v to int, errmsg:%v", i+1, items[1], err.Error()))
 			continue
@@ -385,8 +391,8 @@ func mustParseReceivers() []Receiver {
 		}
 
 		info := Receiver{
-			Address: items[0],
-			Weight:  weight,
+			Address:     items[0],
+			AmountInCfx: amountInCfx,
 		}
 
 		receiverInfos = append(receiverInfos, info)
@@ -422,7 +428,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 
 	need := big.NewInt(0)
 	for _, v := range receivers {
-		receiverNeed := calcValue(receiveNumber, v.Weight)
+		receiverNeed := calcValue(weight, v.AmountInCfx)
 		gasFee := big.NewInt(0)
 		if token == nil {
 			gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())

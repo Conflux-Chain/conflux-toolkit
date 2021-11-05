@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
@@ -88,4 +89,18 @@ func OsExit(format string, a ...interface{}) {
 func Panic(format string, a ...interface{}) {
 	errMsg := fmt.Sprintf(format, a...)
 	panic(errMsg)
+}
+
+func WaitSigAndPrintDot(doneChan chan interface{}) {
+	go func() {
+		for {
+			time.Sleep(time.Second)
+			select {
+			case <-doneChan:
+				return
+			default:
+				fmt.Printf(".")
+			}
+		}
+	}()
 }
