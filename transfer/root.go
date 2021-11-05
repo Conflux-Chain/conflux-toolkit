@@ -243,10 +243,6 @@ func sendOneBatchAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummar
 	waitLastReceipt(rpcBatchElems)
 	batchGetReceipts(rpcBatchElems, &summary)
 
-	// fmt.Printf("Batch sent and executed %v tx done, failed %v\n", len(rpcBatchElems), summary.GetTotalFailCount())
-	// if len(summary.failInfos) > 0 {
-	// 	fmt.Printf("Fails details:%+v\n", strings.Join(summary.failInfos, "\n"))
-	// }
 	return summary
 }
 
@@ -308,8 +304,6 @@ func batchGetReceipts(rpcBatchElems []clientRpc.BatchElem, summary *BatchSummary
 	}
 
 	receiptErrors, err := bulkCaller.Excute()
-	// fmt.Printf("erros len %v\n", len(receiptErrors))
-	// fmt.Printf("allErrors len %v\n", len(allErrors))
 	if err != nil {
 		util.OsExitIfErr(err, "Failed to request transaction receipts: %+v", err)
 	}
@@ -623,7 +617,3 @@ func failTxReceiptNull(i int) string {
 func failExecuteTx(i int, errMsg *string) string {
 	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v", i, "tx execute failed", util.GetStringVal(errMsg))
 }
-
-// func getPosOfAll(startPosition int, delta int) int {
-// 	return startPosition + 2 + delta
-// }
