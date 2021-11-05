@@ -120,7 +120,11 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		oneBatchSummary := sendOneBatchAndWaitReceipt(elems)
 		batchSummary.Merge(oneBatchSummary)
 		receiverInfos = receiverInfos[len(elems):]
-		fmt.Printf("===== Send one batch with %v tx done!=====\n", batchNum)
+
+		fmt.Printf("===== Batch sent and executed %v tx done, failed %v =====\n", oneBatchSummary.total, oneBatchSummary.GetTotalFailCount())
+		if len(oneBatchSummary.failInfos) > 0 {
+			fmt.Printf("Fails details:\n%+v\n", strings.Join(oneBatchSummary.failInfos, "\n"))
+		}
 	}
 
 	fmt.Printf("\n===== All transfer done =====\n")
@@ -239,10 +243,10 @@ func sendOneBatchAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummar
 	waitLastReceipt(rpcBatchElems)
 	batchGetReceipts(rpcBatchElems, &summary)
 
-	fmt.Printf("Batch sent and executed %v tx done, failed %v\n", len(rpcBatchElems), summary.GetTotalFailCount())
-	if len(summary.failInfos) > 0 {
-		fmt.Printf("Fails details:%+v\n", strings.Join(summary.failInfos, "\n"))
-	}
+	// fmt.Printf("Batch sent and executed %v tx done, failed %v\n", len(rpcBatchElems), summary.GetTotalFailCount())
+	// if len(summary.failInfos) > 0 {
+	// 	fmt.Printf("Fails details:%+v\n", strings.Join(summary.failInfos, "\n"))
+	// }
 	return summary
 }
 
@@ -261,12 +265,6 @@ func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) {
 	// wait last be packed
 	var lastHash *types.Hash
 	for i := len(rpcBatchElems); i > 0; i-- {
-		// ok := false
-		// lastHash, ok = rpcBatchElems[i-1].Result.(*types.Hash)
-		// fmt.Printf("rpcBatchElems[i-1]%v,lasthash: %v\n", rpcBatchElems[i-1], lastHash)
-		// if ok && lastHash != nil {
-		// 	break
-		// }
 
 		if rpcBatchElems[i-1].Error == nil {
 			lastHash = rpcBatchElems[i-1].Result.(*types.Hash)
@@ -279,7 +277,7 @@ func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) {
 		return
 	}
 
-	fmt.Printf("\nBatch sent %v, wait last valid tx hash be executed: %v \n", len(rpcBatchElems), lastHash)
+	fmt.Printf("\nBatch sent %v, wait last valid tx hash be executed: %v", len(rpcBatchElems), lastHash)
 
 	receiptDoneChan := util.WaitSigAndPrintDot()
 	_, e := env.client.WaitForTransationReceipt(*lastHash, time.Second)
