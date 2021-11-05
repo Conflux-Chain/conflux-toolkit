@@ -91,7 +91,8 @@ func Panic(format string, a ...interface{}) {
 	panic(errMsg)
 }
 
-func WaitSigAndPrintDot(doneChan chan interface{}) {
+func WaitSigAndPrintDot() chan interface{} {
+	doneChan := make(chan interface{})
 	go func() {
 		for {
 			time.Sleep(time.Second)
@@ -103,4 +104,12 @@ func WaitSigAndPrintDot(doneChan chan interface{}) {
 			}
 		}
 	}()
+	return doneChan
+}
+
+func GetStringVal(strPtr *string) string {
+	if strPtr == nil {
+		return "nil"
+	}
+	return *strPtr
 }

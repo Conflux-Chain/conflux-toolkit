@@ -20,6 +20,7 @@ import (
 
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
+	"github.com/Conflux-Chain/go-conflux-sdk/cfxclient/bulk"
 	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
@@ -29,16 +30,6 @@ import (
 
 	"github.com/spf13/cobra"
 )
-
-type enviorment struct {
-	client             *sdk.Client
-	am                 *sdk.AccountManager
-	lastPoint          int
-	from               types.Address
-	nonce              *big.Int
-	chainID, networkID uint32
-	epochHeight        uint64
-}
 
 var (
 	rootCmd = &cobra.Command{
@@ -113,16 +104,22 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	// transfer
 	fmt.Println("===== Start batch transfer =====")
 	receiverInfos = receiverInfos[(env.lastPoint + 1):]
+	batchSummary := BatchSummary{}
 	for len(receiverInfos) > 0 {
 		batchNum := int(math.Min(float64(perBatchNum), float64(len(receiverInfos))))
+		// startPosition := env.lastPoint
 		env.lastPoint += batchNum
 
 		elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, estimates)
-		sendOneBatch(env.client, elems)
+		oneBatchSummary := sendOneBatchAndWaitReceipt(elems)
+		batchSummary.Merge(oneBatchSummary)
 		receiverInfos = receiverInfos[len(elems):]
 	}
 
-	fmt.Printf("===== All transfer done! =====\n")
+	fmt.Printf("===== All transfer done =====\n")
+	fmt.Printf("Summares:\n%v\n", &batchSummary)
+
+	fmt.Printf("===== Complete! =====\n")
 }
 
 func initialEnviorment() {
@@ -217,36 +214,131 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 	return rpcBatchElems
 }
 
-func sendOneBatch(client *sdk.Client, rpcBatchElems []clientRpc.BatchElem) {
-	e := client.BatchCallRPC(rpcBatchElems)
-	util.OsExitIfErr(e, "Batch send error")
-
-	fails := []clientRpc.BatchElem{}
-	for _, v := range rpcBatchElems {
-		if v.Error != nil {
-			fails = append(fails, v)
-		}
-	}
-	if len(fails) > 0 {
-		fmt.Printf("Fails details:%+v\n", fails)
+func sendOneBatchAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummary {
+	summary := BatchSummary{
+		total: len(rpcBatchElems),
 	}
 
+	batchSend(rpcBatchElems)
 	// save record
 	ioutil.WriteFile(resultPath, []byte(strconv.Itoa(env.lastPoint)), 0777)
 
-	// wait last packed
-	lastHash := rpcBatchElems[len(rpcBatchElems)-1].Result.(*types.Hash)
+	waitLastReceipt(rpcBatchElems)
+	batchGetReceipts(rpcBatchElems, &summary)
 
-	fmt.Printf("Batch sent %v tx, total sent %v, failed %v, wait last be executed: %v, please wait ...\n", len(rpcBatchElems), env.lastPoint+1-len(fails), len(fails), lastHash)
+	fmt.Printf("\nBatch sent %v tx, failed %v\n", len(rpcBatchElems), summary.GetTotalFailCount())
+	if len(summary.failInfos) > 0 {
+		fmt.Printf("Fails details:%+v\n", strings.Join(summary.failInfos, "\n"))
+	}
+	return summary
+}
 
-	// wait last packed
-	doneChan := make(chan interface{})
-	util.WaitSigAndPrintDot(doneChan)
-	_, e = client.WaitForTransationReceipt(*lastHash, time.Second)
-	doneChan <- nil
+func batchSend(rpcBatchElems []clientRpc.BatchElem) {
+	// wait response
+	fmt.Printf("\nSending the batch transactions, please wait response")
 
-	fmt.Printf("\nThe last tx %v of this batch is executed\n\n", lastHash)
-	util.OsExitIfErr(e, "Failed to get result of tx hash %+v", lastHash)
+	hashDoneChan := util.WaitSigAndPrintDot()
+	e := env.client.BatchCallRPC(rpcBatchElems)
+	hashDoneChan <- nil
+	fmt.Printf("\nReceived send response\n")
+	util.OsExitIfErr(e, "Batch send error")
+}
+
+func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) {
+	// wait last be packed
+	var lastHash *types.Hash
+	for i := len(rpcBatchElems); i > 0; i-- {
+		// ok := false
+		// lastHash, ok = rpcBatchElems[i-1].Result.(*types.Hash)
+		// fmt.Printf("rpcBatchElems[i-1]%v,lasthash: %v\n", rpcBatchElems[i-1], lastHash)
+		// if ok && lastHash != nil {
+		// 	break
+		// }
+
+		if rpcBatchElems[i-1].Error == nil {
+			lastHash = rpcBatchElems[i-1].Result.(*types.Hash)
+			break
+		}
+	}
+	// all are error, return
+	if lastHash == nil {
+		fmt.Println("Failed to send all of this batch of transactions")
+		return
+	}
+
+	fmt.Printf("\nBatch sent %v, wait last valid tx hash be executed: %v \n", len(rpcBatchElems), lastHash)
+
+	receiptDoneChan := util.WaitSigAndPrintDot()
+	_, e := env.client.WaitForTransationReceipt(*lastHash, time.Second)
+	receiptDoneChan <- nil
+	if e != nil {
+		util.OsExitIfErr(e, "Failed to get result of last valid tx hash %+v", lastHash)
+	}
+
+	fmt.Printf("\nThe last valid tx %v of this batch is executed\n\n", lastHash)
+}
+
+func batchGetReceipts(rpcBatchElems []clientRpc.BatchElem, summary *BatchSummary) {
+	// check if all transaction executed successfully
+	bulkCaller := bulk.NewBulkerCaller(env.client)
+
+	failInfos := make([]string, 0)
+	txReceipts := make([]*types.TransactionReceipt, len(rpcBatchElems))
+	allErrors := make([]error, len(rpcBatchElems))
+
+	receiptErrIdxInAll := make([]int, 0)
+	for i, v := range rpcBatchElems {
+		allErrors[i] = v.Error
+		if v.Error != nil {
+			continue
+		}
+		txReceipts[i] = bulkCaller.GetTransactionReceipt(*v.Result.(*types.Hash))
+		receiptErrIdxInAll = append(receiptErrIdxInAll, i)
+	}
+
+	receiptErrors, err := bulkCaller.Excute()
+	// fmt.Printf("erros len %v\n", len(receiptErrors))
+	// fmt.Printf("allErrors len %v\n", len(allErrors))
+	if err != nil {
+		util.OsExitIfErr(err, "Failed to request transaction receipts: %+v", err)
+	}
+
+	for i, v := range receiptErrors {
+		allErrors[receiptErrIdxInAll[i]] = v
+	}
+
+	for i, r := range txReceipts {
+		posOfAll := env.lastPoint + 2 - len(rpcBatchElems) + i
+		if r != nil && r.OutcomeStatus == 0 {
+			continue
+		}
+
+		if rpcBatchElems[i].Error != nil {
+			failInfos = append(failInfos, failSentTx(posOfAll, allErrors[i]))
+			summary.sentTxfailedCount++
+			continue
+		}
+
+		if allErrors[i] != nil {
+			failInfos = append(failInfos, failGetTxReceipt(posOfAll, allErrors[i]))
+			summary.getReceiptFailedCount++
+			continue
+		}
+
+		// In normal case, the transaction receipt could not nil when tx is executed, so it's impossible to be nil here, but just record it if really happens
+		if r == nil {
+			failInfos = append(failInfos, failTxReceiptNull(posOfAll))
+			summary.receiptNullCount++
+			continue
+		}
+
+		if r.OutcomeStatus != 0 {
+			failInfos = append(failInfos, failExecuteTx(posOfAll, r.TxExecErrorMsg))
+			summary.executFailedCount++
+			continue
+		}
+	}
+	summary.failInfos = failInfos
 }
 
 func selectToken() (symbol string, contractAddress *types.Address) {
@@ -331,7 +423,19 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 		tx.Data = getTransferData(*token, to, amountInDrip)
 	}
 
-	tx.Gas = estimates.GasLimit
+	// double gasPrice to avoid transaction fail because of "out of gas"
+	_gasLimit := new(big.Int).Mul(estimates.GasLimit.ToInt(), big.NewInt(2))
+	if _gasLimit.Cmp(big.NewInt(15000000)) > 0 {
+		_gasLimit = big.NewInt(15000000)
+	}
+
+	// _gasLimit = estimates.GasLimit.ToInt().Mul(estimates.GasLimit.ToInt(), big.NewInt(2))
+	// if tx.Nonce.String()[4] == '1' {
+	// 	_gasLimit = big.NewInt(16000000000)
+	// }
+
+	// fmt.Printf("estimates.GasLimit %v, _gasLimit %v\n", estimates.GasLimit, _gasLimit)
+	tx.Gas = (*hexutil.Big)(_gasLimit)
 	tx.StorageLimit = types.NewUint64(estimates.StorageCollateralized.ToInt().Uint64())
 
 	return tx
@@ -433,6 +537,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		if token == nil {
 			gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
 		}
+		// TODO: check if sponsor when token transfer
 
 		need = need.Add(need, receiverNeed)
 		need = need.Add(need, gasFee)
@@ -450,3 +555,24 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	}
 	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(need, tokenSymbol), util.DisplayValueWithUnit(balance, tokenSymbol))
 }
+
+// ======= Fail Message =======
+func failSentTx(i int, err error) string {
+	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v\n", i, "send tx", err)
+}
+
+func failGetTxReceipt(i int, err error) string {
+	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v\n", i, "get tx receipt", err)
+}
+
+func failTxReceiptNull(i int) string {
+	return fmt.Sprintf("The %vth transaction failed, Failed type: %v", i, "tx receipt null")
+}
+
+func failExecuteTx(i int, errMsg *string) string {
+	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v\n", i, "tx execute failed", util.GetStringVal(errMsg))
+}
+
+// func getPosOfAll(startPosition int, delta int) int {
+// 	return startPosition + 2 + delta
+// }
