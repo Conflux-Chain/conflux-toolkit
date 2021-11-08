@@ -216,8 +216,9 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 		encoded, err := env.am.SignTransaction(*tx)
 		util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
 
-		fmt.Printf("%v. Sign send %v to %v with value %v done\n", startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
-			util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)))
+		fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
+			startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
+			util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)), tx.Nonce)
 
 		// push to batch item array
 		batchElemResult := types.Hash("")
@@ -253,8 +254,12 @@ func batchSend(rpcBatchElems []clientRpc.BatchElem) {
 	hashDoneChan := util.WaitSigAndPrintDot()
 	e := env.client.BatchCallRPC(rpcBatchElems)
 	hashDoneChan <- nil
-	// fmt.Printf("\nReceived send response\n")
 	util.OsExitIfErr(e, "Batch send error")
+	fmt.Println("\n==Received tx hash list")
+	for i, v := range rpcBatchElems {
+		posOfAll := env.lastPoint + 2 - len(rpcBatchElems) + i
+		fmt.Printf("%v. txhash %v error %v\n", posOfAll, v.Result, v.Error)
+	}
 }
 
 func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) {
