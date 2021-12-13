@@ -40,7 +40,7 @@ func AddFromVar(cmd *cobra.Command) {
 
 // AddGasPriceVar addds price variable for specified command.
 func AddGasPriceVar(cmd *cobra.Command) {
-	cmd.PersistentFlags().StringVar(&priceStr, "price", "1", "Gas price in drip")
+	cmd.PersistentFlags().StringVar(&priceStr, "price", "10", "Gas price in drip")
 }
 
 // MustParseAccount parse account from input parameter.
