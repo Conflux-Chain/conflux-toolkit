@@ -164,7 +164,8 @@ func initialEnviorment() {
 	env.networkID = uint32(status.NetworkID)
 
 	env.from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), env.networkID)
-	password := "123" // account.MustInputPassword("Enter password: ")
+	password := account.MustInputPassword("Enter password: ")
+	// password := "123" //
 
 	err = env.am.Unlock(env.from, password)
 	util.OsExitIfErr(err, "Failed to unlock account")
@@ -507,7 +508,7 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 		fmt.Printf("%v. token: %v, contract address: %v\n", i+2, tokenList.List[i].Symbol, tokenList.List[i].Address)
 	}
 
-	selectedIdx := 1 // getSelectedIndex(len(tokenList.List) + 2)
+	selectedIdx := getSelectedIndex(len(tokenList.List) + 2)
 	if selectedIdx == 1 {
 		symbol = "CFX"
 		return
@@ -675,13 +676,13 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	}
 
 	for _, v := range receivers {
-		receiverNeed := calcValue(weight, v.AmountInCfx)
+		aReceiveNeed := calcValue(weight, v.AmountInCfx)
 		// gasFee := big.NewInt(0)
 		// if token == nil {
 		// 	gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
 		// }
 
-		receiveNeed = receiveNeed.Add(receiveNeed, receiverNeed)
+		receiveNeed = receiveNeed.Add(receiveNeed, aReceiveNeed)
 		gasNeed = gasNeed.Add(gasNeed, perTxGasNeed)
 		storageNeed = storageNeed.Add(storageNeed, perTxStorageNeed)
 	}
@@ -691,8 +692,8 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		cfxNeed = big.NewInt(0).Add(cfxNeed, storageNeed)
 		if cfxBalance.Cmp(cfxNeed) < 0 {
 			// clearCacheFile()
-			msg := fmt.Sprintf("Balance of %v is not enough, need %v, has %v",
-				from, util.DisplayValueWithUnit(receiveNeed), util.DisplayValueWithUnit(cfxBalance))
+			msg := fmt.Sprintf("Balance of %v is not enough,  need %v, has %v",
+				from, util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance))
 			util.OsExit(msg)
 		}
 	} else {
@@ -709,5 +710,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		}
 	}
 
-	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(cfxBalance, tokenSymbol))
+	fmt.Printf("Balance of %v is enough, %v need %v, fee need %v; token has %v, cfx has %v\n", from, tokenSymbol,
+		util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(new(big.Int).Add(gasNeed, storageNeed)),
+		util.DisplayValueWithUnit(tokenBalance, tokenSymbol), util.DisplayValueWithUnit(cfxBalance))
 }

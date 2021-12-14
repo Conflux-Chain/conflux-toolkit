@@ -27,10 +27,15 @@ func init() {
 
 func setLogLevel() {
 	levelStr := os.Getenv("LOGLEVEL")
+	if levelStr == "" {
+		return
+	}
+
 	level, err := strconv.ParseUint(levelStr, 10, 32)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("failed get log level:%v\n", err)
 	}
+
 	logrus.SetLevel(logrus.Level(level))
 }
 

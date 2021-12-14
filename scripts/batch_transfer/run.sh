@@ -87,7 +87,6 @@ echo "- 将使用该地址空投：${address}"
 # select network type, mainnet or testnet?
 echo "\n*******************选择网络类型*******************"
 echo "- 请手动输入您要空投到的网络类型：测试网输入test, tethys主网输入tethys"
-echo "注意：cToken发送只支持tethys主网"
 
 while
     true
@@ -115,20 +114,20 @@ do
 done
 
 echo "\n*******************选择gasPrice*******************"
-echo "- 默认 gasPrice 是 1K drip，当网络拥堵时需要调高gasPrice，输入 \"N\" 跳过设置；输入 \"Y\" 提高gasPrice至 1G drip "
+echo "- 默认 gasPrice 是 31K drip，当网络拥堵时需要调高gasPrice，输入 \"N\" 跳过设置；输入 \"Y\" 提高gasPrice至 1G drip "
 while
     true
     read -r -p "" input
 do
     case $input in
     "N")
-        echo "- 您选择使用1K drip gasPrice"
-        gasPrice=1000
+        echo "- 您选择使用 31K drip gasPrice"
+        gasPrice=31000
         break
         ;;
 
     "Y")
-        echo "- 您选择使用1G drip gasPrice"
+        echo "- 您选择使用 1G drip gasPrice"
         gasPrice=1000000000
         break
         ;;
