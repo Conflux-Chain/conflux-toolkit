@@ -12,6 +12,7 @@ import (
 	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
+	"github.com/sirupsen/logrus"
 )
 
 // ======= Record process state =======
@@ -100,12 +101,12 @@ func (s *ProcessState) save() {
 }
 
 func (s *ProcessState) refreshByReceivers(receverList []Receiver) {
-	fmt.Printf("refreshByReceivers, ProcessState,%+v\n", s)
+	// fmt.Printf("refreshByReceivers, ProcessState,%+v\n", s)
 	r, e := json.Marshal(receverList)
 	util.OsExitIfErr(e, "Failed to marshal receiver list")
 	newReceiverHash := fmt.Sprintf("%x", md5.Sum(r))
 	if s.ReceiverListHash != newReceiverHash {
-		fmt.Printf("%v != %v\n", s.ReceiverListHash, newReceiverHash)
+		logrus.Debugf("%v != %v\n", s.ReceiverListHash, newReceiverHash)
 		*s = ProcessState{}
 	}
 	s.ReceiverListHash = newReceiverHash
@@ -114,7 +115,7 @@ func (s *ProcessState) refreshByReceivers(receverList []Receiver) {
 
 func (s *ProcessState) saveSelectToken(tokenSymbol string, tokenAddress *cfxaddress.Address) {
 	if s.TokenSymbol != tokenSymbol || s.TokenAddress != tokenAddress {
-		fmt.Printf("refresh select token,%v,%v\n", s.TokenSymbol, s.TokenAddress)
+		logrus.Debugf("refresh select token,%v,%v\n", s.TokenSymbol, s.TokenAddress)
 		s.TokenSymbol = tokenSymbol
 		s.TokenAddress = tokenAddress
 		// reset last sending info
@@ -125,7 +126,7 @@ func (s *ProcessState) saveSelectToken(tokenSymbol string, tokenAddress *cfxaddr
 }
 
 func (s *ProcessState) saveSendings(sendingStartIdx int, rpcBatchElems []clientRpc.BatchElem) {
-	fmt.Printf("saveSendings, sendingStartIdx %+v\n", sendingStartIdx)
+	logrus.Debugf("saveSendings, sendingStartIdx %+v\n", sendingStartIdx)
 	s.SendingBatchElems = rpcBatchElems
 	s.SendingStartIdx = sendingStartIdx
 	s.save()

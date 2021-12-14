@@ -8,15 +8,14 @@ import (
 	"math"
 	"math/big"
 	"net/http"
-	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Conflux-Chain/conflux-toolkit/account"
 	"github.com/Conflux-Chain/conflux-toolkit/contract/common"
 	"github.com/Conflux-Chain/conflux-toolkit/rpc"
+	"github.com/sirupsen/logrus"
 
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
@@ -24,6 +23,7 @@ import (
 	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
+	"github.com/Conflux-Chain/go-conflux-sdk/utils"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/shopspring/decimal"
@@ -38,7 +38,7 @@ var (
 		Run:   doTransfers,
 	}
 	// path for record result
-	resultPath = "./transfer_result.txt"
+	resultPath = "./transfer_result.json"
 
 	defaultGasLimit = types.NewBigInt(21000)
 
@@ -79,51 +79,70 @@ func SetParent(parent *cobra.Command) {
 }
 
 func doTransfers(cmd *cobra.Command, args []string) {
+
+	// returns sended number
+	// doOneBatch := func(elems []clientRpc.BatchElem, summay *BatchSummary) int {
+	// 	oneBatchSummary := batchSendAndWaitReceipt(elems)
+	// 	env.pState.saveSendings(env.pState.SendingStartIdx+len(elems), nil)
+
+	// 	summay.Merge(oneBatchSummary)
+
+	// 	fmt.Printf("===== Batch sent and executed %v tx done, failed %v =====\n", oneBatchSummary.total, oneBatchSummary.GetTotalFailCount())
+	// 	if len(oneBatchSummary.failInfos) > 0 {
+	// 		fmt.Printf("Fails details:\n%+v\n", strings.Join(oneBatchSummary.failInfos, "\n"))
+	// 	}
+	// 	return len(elems)
+	// }
+
 	fmt.Println("Initial enviorment")
 	initialEnviorment()
 
-	resultFs := creatRecordFiles()
-	defer func() {
-		resultFs.Close()
-		e := os.Remove(resultPath)
-		util.OsExitIfErr(e, "Remove result file error.")
-	}()
+	defer clearCacheFile()
 
 	receiverInfos := mustParseReceivers()
+	env.pState.refreshByReceivers(receiverInfos)
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
 	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, tokenAddress)
 
-	estimates := estimateGasAndCollateral(tokenAddress)
-
-	// check balance
-	fmt.Println("===== Check if balance enough =====")
-	checkBalance(env.client, env.from, receiverInfos, tokenAddress, tokenSymbol)
-
 	// transfer
 	fmt.Println("===== Start batch transfer =====")
-	receiverInfos = receiverInfos[(env.lastPoint + 1):]
 	batchSummary := BatchSummary{}
-	for len(receiverInfos) > 0 {
-		batchNum := int(math.Min(float64(perBatchNum), float64(len(receiverInfos))))
-		// startPosition := env.lastPoint
-		env.lastPoint += batchNum
 
-		// refresh nonce, because last batch may be has error like "tx pool is full", so refresh it
-		_nonce, err := env.client.GetNextNonce(env.from)
-		util.OsExitIfErr(err, "failed get nonce")
-		env.nonce = _nonce.ToInt()
+	// firstly send last send pendings
+	env.pState.saveSelectToken(tokenSymbol, tokenAddress)
+	receiverInfos = receiverInfos[env.pState.SendingStartIdx:]
 
-		fmt.Printf("\n===== Start send one batch with %v tx=====\n", batchNum)
-		elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, estimates)
-		oneBatchSummary := sendOneBatchAndWaitReceipt(elems)
-		batchSummary.Merge(oneBatchSummary)
-		receiverInfos = receiverInfos[len(elems):]
+	logrus.Debugf("a receiverInfos len:%v\n", len(receiverInfos))
+	if len(env.pState.SendingBatchElems) > 0 {
+		fmt.Printf("==== There are uncompleted tx in last time, start send one batch from %v and length %v ===\n",
+			env.pState.SendingStartIdx, len(env.pState.SendingBatchElems))
 
-		fmt.Printf("===== Batch sent and executed %v tx done, failed %v =====\n", oneBatchSummary.total, oneBatchSummary.GetTotalFailCount())
-		if len(oneBatchSummary.failInfos) > 0 {
-			fmt.Printf("Fails details:\n%+v\n", strings.Join(oneBatchSummary.failInfos, "\n"))
+		sentNum := sendOneBatch(env.pState.SendingBatchElems, &batchSummary)
+		receiverInfos = receiverInfos[sentNum:]
+		logrus.Debugf("aa receiverInfos len:%v\n", len(receiverInfos))
+	}
+
+	if len(receiverInfos) > 0 {
+		// check balance
+		fmt.Println("===== Check if balance enough =====")
+		checkBalance(env.client, env.from, receiverInfos, tokenAddress, tokenSymbol)
+
+		estimates := estimateGasAndCollateral(tokenAddress)
+		for len(receiverInfos) > 0 {
+			batchNum := int(math.Min(float64(perBatchNum), float64(len(receiverInfos))))
+
+			// refresh nonce, because last batch may be has error like "tx pool is full", so refresh it
+			// _nonce, err := env.client.GetNextNonce(env.from)
+			// util.OsExitIfErr(err, "failed get nonce")
+			// env.nonce = _nonce.ToInt()
+
+			fmt.Printf("\n===== Start send one batch with %v tx=====\n", batchNum)
+			elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, estimates)
+			sentNum := sendOneBatch(elems, &batchSummary)
+			receiverInfos = receiverInfos[sentNum:]
+			logrus.Debugf("aaa receiverInfos len:%v\n", len(receiverInfos))
 		}
 	}
 
@@ -145,7 +164,7 @@ func initialEnviorment() {
 	env.networkID = uint32(status.NetworkID)
 
 	env.from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), env.networkID)
-	password := account.MustInputPassword("Enter password: ")
+	password := "123" // account.MustInputPassword("Enter password: ")
 
 	err = env.am.Unlock(env.from, password)
 	util.OsExitIfErr(err, "Failed to unlock account")
@@ -153,7 +172,7 @@ func initialEnviorment() {
 	fmt.Printf("Account %v is unlocked\n", env.from)
 
 	// get inital Nonce
-	_nonce, e := env.client.GetNextNonce(env.from)
+	_nonce, e := env.client.TxPool().NextNonce(env.from)
 	env.nonce = _nonce.ToInt()
 	util.OsExitIfErr(e, "Failed to get nonce of from %v", env.from)
 
@@ -161,20 +180,34 @@ func initialEnviorment() {
 	util.OsExitIfErr(err, "Failed to get epoch")
 	env.epochHeight = epoch.ToInt().Uint64()
 
-	if _, err := os.Stat(resultPath); os.IsNotExist(err) {
-		env.lastPoint = -1
-		return
-	}
+	env.pState = loadProcessState()
+	// if _, err := os.Stat(resultPath); os.IsNotExist(err) {
+	// 	env.processState.SendingsStartIdx = nil
+	// 	return
+	// }
 
-	lastPointStr, e := ioutil.ReadFile(resultPath)
-	util.OsExitIfErr(e, "Failed to read result content")
+	// lastPointStr, e := ioutil.ReadFile(resultPath)
+	// util.OsExitIfErr(e, "Failed to read result content")
 
-	if len(lastPointStr) > 0 {
-		env.lastPoint, e = strconv.Atoi(string(lastPointStr))
-		util.OsExitIfErr(e, "Failed to parse result content")
-	} else {
-		env.lastPoint = -1
+	// if len(lastPointStr) > 0 {
+	// 	env.processState.SendingsStartIdx, e = strconv.Atoi(string(lastPointStr))
+	// 	util.OsExitIfErr(e, "Failed to parse result content")
+	// } else {
+	// 	env.SendingsStartIdx = -1
+	// }
+}
+
+func sendOneBatch(elems []clientRpc.BatchElem, summay *BatchSummary) int {
+	oneBatchSummary := batchSendAndWaitReceipt(elems)
+	env.pState.saveSendings(env.pState.SendingStartIdx+len(elems), nil)
+
+	summay.Merge(oneBatchSummary)
+
+	fmt.Printf("===== Batch sent and executed %v tx done, failed %v =====\n", oneBatchSummary.total, oneBatchSummary.GetTotalFailCount())
+	if len(oneBatchSummary.failInfos) > 0 {
+		fmt.Printf("Fails details:\n%+v\n", strings.Join(oneBatchSummary.failInfos, "\n"))
 	}
+	return len(elems)
 }
 
 func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
@@ -193,7 +226,7 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 	em, err := env.client.EstimateGasAndCollateral(callReq)
 	util.OsExitIfErr(err, "failed get estimate of %v", callReq)
 
-	// double gasPrice to avoid transaction fail because of "out of gas"
+	// double gasLimit to avoid transaction fail because of "out of gas"
 	_doubledGasLimit := new(big.Int).Mul(em.GasLimit.ToInt(), big.NewInt(2))
 	if _doubledGasLimit.Cmp(big.NewInt(15000000)) > 0 {
 		_doubledGasLimit = big.NewInt(15000000)
@@ -204,71 +237,152 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 
 func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Address, tokenSymbol string, estimates types.Estimate) (elems []clientRpc.BatchElem) {
 	// env.lastPoint is start with -1, so env.lastPoint+1 is actual index, env.lastPoint + 2 is the index count from 1
-	startCnt := env.lastPoint + 2 - len(oneBatchReceiver)
+	startCnt := env.pState.SendingStartIdx + 1 //- len(oneBatchReceiver)
 
 	rpcBatchElems := []clientRpc.BatchElem{}
 	for i, v := range oneBatchReceiver {
 		tx := createTx(env.from, v, tokenAddress, env.nonce, estimates)
-		err := env.client.ApplyUnsignedTransactionDefault(tx)
-		util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
-
-		// sign
-		encoded, err := env.am.SignTransaction(*tx)
-		util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
+		rpcBatchElems = append(rpcBatchElems, createBatchElemItem(tx))
 
 		fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
 			startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
 			util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)), tx.Nonce)
-
-		// push to batch item array
-		batchElemResult := types.Hash("")
-		rpcBatchElems = append(rpcBatchElems, clientRpc.BatchElem{
-			Method: "cfx_sendRawTransaction",
-			Args:   []interface{}{"0x" + hex.EncodeToString(encoded)},
-			Result: &batchElemResult,
-		})
 		env.nonce = env.nonce.Add(env.nonce, big.NewInt(1))
 	}
 	return rpcBatchElems
 }
 
-func sendOneBatchAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummary {
+func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
+	err := env.client.ApplyUnsignedTransactionDefault(tx)
+	util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
+
+	// sign
+	encoded, err := env.am.SignTransaction(*tx)
+	util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
+
+	// fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
+	// 	startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
+	// 	util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)), tx.Nonce)
+
+	// push to batch item array
+	batchElemResult := new(string)
+	return clientRpc.BatchElem{
+		Method: "cfx_sendRawTransaction",
+		Args:   []interface{}{"0x" + hex.EncodeToString(encoded)},
+		Result: batchElemResult,
+	}
+}
+
+func batchSendAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummary {
 	summary := BatchSummary{
 		total: len(rpcBatchElems),
 	}
 
-	batchSend(rpcBatchElems)
-	// save record
-	ioutil.WriteFile(resultPath, []byte(strconv.Itoa(env.lastPoint)), 0777)
-
+	batchSend(rpcBatchElems, nil)
 	waitLastReceipt(rpcBatchElems)
 	batchGetReceipts(rpcBatchElems, &summary)
 
 	return summary
 }
 
-func batchSend(rpcBatchElems []clientRpc.BatchElem) {
-	// wait response
-	// fmt.Printf("\nSending the batch transactions, please wait response")
+func batchSend(rpcBatchElems []clientRpc.BatchElem, needSends []bool) {
+	needSends, allSendDone := refreshNeedSends(rpcBatchElems, needSends)
+	logrus.Debugf("needSends: %v, allSendDone %v\n", needSends, allSendDone)
+	if allSendDone {
+		return
+	}
 
+	// wait response
 	hashDoneChan := util.WaitSigAndPrintDot()
 	e := env.client.BatchCallRPC(rpcBatchElems)
 	hashDoneChan <- nil
 	util.OsExitIfErr(e, "Batch send error")
-	fmt.Println("\n==Received tx hash list")
+	fmt.Println("\n== Received tx hash list")
+
+	env.pState.saveSendings(env.pState.SendingStartIdx, rpcBatchElems)
+
 	for i, v := range rpcBatchElems {
-		posOfAll := env.lastPoint + 2 - len(rpcBatchElems) + i
-		fmt.Printf("%v. txhash %v error %v\n", posOfAll, v.Result, v.Error)
+		posOfAll := env.pState.SendingStartIdx + 1 + i //- len(rpcBatchElems)
+
+		if !needSends[i] {
+			continue
+		}
+
+		if v.Error == nil {
+			needSends[i] = false
+			fmt.Printf("%v. txhash %v \n", posOfAll, *(v.Result.(*string)))
+			continue
+		}
+
+		rpcError, e := utils.ToRpcError(v.Error)
+		if e == nil {
+			v.Error = rpcError
+		} else {
+			fmt.Printf("not a valid rpc error , Type %t, %v\n", v.Error, v.Error)
+		}
+
+		fmt.Printf("%v. send error %v, will auto re-send later \n", posOfAll, rpcError)
+
+		// regenerate tx for errored tx, the tx error must be "tx is full" or "tx already exist"
+		var err error
+		if rpcBatchElems[i], err = reorgnizeTx(v); err != nil {
+			util.OsExitIfErr(err, "%v. Failed to reorgnize tx %v\n", posOfAll)
+		}
 	}
+	// re-send
+	time.Sleep(time.Second * 2)
+	batchSend(rpcBatchElems, needSends)
+}
+
+func refreshNeedSends(rpcBatchElems []clientRpc.BatchElem, needSends []bool) (populated []bool, allSendDone bool) {
+	// No result or error is not nil, need send
+	if needSends == nil {
+		needSends = make([]bool, len(rpcBatchElems))
+		for i := range needSends {
+			result := rpcBatchElems[i].Result.(*string)
+			needSends[i] = rpcBatchElems[i].Error != nil || *result == ""
+			// fmt.Printf("rpcBatchElems[i].Error == %v, result= %v \n", rpcBatchElems[i].Error, *result)
+		}
+	}
+
+	if len(rpcBatchElems) != len(needSends) {
+		util.OsExit("batch elem length must equal to isSend flgas length")
+	}
+
+	// if no need send, return
+	allSendDone = true
+	for _, v := range needSends {
+		if v {
+			allSendDone = false
+			break
+		}
+	}
+	return needSends, allSendDone
+}
+
+func reorgnizeTx(be clientRpc.BatchElem) (clientRpc.BatchElem, error) {
+	rawTxStr := be.Args[0].(string)
+	rawTxByts, err := hex.DecodeString(rawTxStr[2:])
+	util.OsExitIfErr(err, "Failed to decode raw tx string %v", rawTxStr)
+
+	signedTx := &types.SignedTransaction{}
+	err = signedTx.Decode(rawTxByts, env.networkID)
+	util.OsExitIfErr(err, "%v. Failed to decode signed tx %v\n")
+
+	signedTx.UnsignedTransaction.GasPrice = types.NewBigIntByRaw(new(big.Int).Add(signedTx.UnsignedTransaction.GasPrice.ToInt(), big.NewInt(1)))
+	reorgedItem := createBatchElemItem(&signedTx.UnsignedTransaction)
+
+	fmt.Printf("Reorgnized tx with new gas price %v\n", signedTx.UnsignedTransaction.GasPrice.ToInt())
+	logrus.Debugf("Reorgnized tx %+v with new gas price\n", signedTx)
+	return reorgedItem, nil
 }
 
 func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) {
 	// wait last be packed
 	var lastHash *types.Hash
 	for i := len(rpcBatchElems); i > 0; i-- {
-
 		if rpcBatchElems[i-1].Error == nil {
-			lastHash = rpcBatchElems[i-1].Result.(*types.Hash)
+			lastHash = (*types.Hash)(rpcBatchElems[i-1].Result.(*string))
 			break
 		}
 	}
@@ -278,24 +392,28 @@ func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) {
 		return
 	}
 
-	fmt.Printf("\nBatch sent %v, wait last valid tx hash be executed: %v", len(rpcBatchElems), lastHash)
+	fmt.Printf("\nBatch sent %v, wait last valid tx hash be executed: %v ", len(rpcBatchElems), lastHash)
 
 	receiptDoneChan := util.WaitSigAndPrintDot()
 	_, e := env.client.WaitForTransationReceipt(*lastHash, time.Second)
 	receiptDoneChan <- nil
 	if e != nil {
-		util.OsExitIfErr(e, "Failed to get result of last valid tx hash %+v", lastHash)
+		util.OsExitIfErr(e, "Failed to get receipt of %+v", lastHash)
 	}
 
-	fmt.Printf("\nThe last valid tx %v of this batch is executed\n\n", lastHash)
+	fmt.Printf(" executed! \n\n")
 }
 
 func batchGetReceipts(rpcBatchElems []clientRpc.BatchElem, summary *BatchSummary) {
 	// check if all transaction executed successfully
-	bulkCaller := bulk.NewBulkerCaller(env.client)
+	bulkCaller := bulk.NewBulkCaller(env.client)
 
 	failInfos := make([]string, 0)
 	txReceipts := make([]*types.TransactionReceipt, len(rpcBatchElems))
+	receiptErrors := make([]*error, len(rpcBatchElems))
+
+	// all send tx and get tx receipt errors, rpcBatchElems.Error is sent tx error,
+	// and GetTransactionReceipt error also be saved to allErrors
 	allErrors := make([]error, len(rpcBatchElems))
 
 	receiptErrIdxInAll := make([]int, 0)
@@ -304,21 +422,25 @@ func batchGetReceipts(rpcBatchElems []clientRpc.BatchElem, summary *BatchSummary
 		if v.Error != nil {
 			continue
 		}
-		txReceipts[i] = bulkCaller.GetTransactionReceipt(*v.Result.(*types.Hash))
+
+		txHash := (*types.Hash)(v.Result.(*string))
+		txReceipts[i], receiptErrors[i] = bulkCaller.GetTransactionReceipt(*txHash)
 		receiptErrIdxInAll = append(receiptErrIdxInAll, i)
 	}
 
-	receiptErrors, err := bulkCaller.Excute()
+	err := bulkCaller.Execute()
 	if err != nil {
 		util.OsExitIfErr(err, "Failed to request transaction receipts: %+v", err)
 	}
 
 	for i, v := range receiptErrors {
-		allErrors[receiptErrIdxInAll[i]] = v
+		if v != nil {
+			allErrors[receiptErrIdxInAll[i]] = *v
+		}
 	}
 
 	for i, r := range txReceipts {
-		posOfAll := env.lastPoint + 2 - len(rpcBatchElems) + i
+		posOfAll := env.pState.SendingStartIdx + 1 + i //- len(rpcBatchElems)
 		if r != nil && r.OutcomeStatus == 0 {
 			continue
 		}
@@ -385,7 +507,7 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 		fmt.Printf("%v. token: %v, contract address: %v\n", i+2, tokenList.List[i].Symbol, tokenList.List[i].Address)
 	}
 
-	selectedIdx := getSelectedIndex(len(tokenList.List) + 2)
+	selectedIdx := 1 // getSelectedIndex(len(tokenList.List) + 2)
 	if selectedIdx == 1 {
 		symbol = "CFX"
 		return
@@ -514,12 +636,6 @@ func mustParseReceivers() []Receiver {
 	return receiverInfos
 }
 
-func creatRecordFiles() (resultFs *os.File) {
-	resultFs, e := os.OpenFile(resultPath, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0777)
-	util.OsExitIfErr(e, "Failed to create file")
-	return
-}
-
 func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address, tokenSymbol string) {
 
 	var (
@@ -574,7 +690,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		cfxNeed := big.NewInt(0).Add(receiveNeed, gasNeed)
 		cfxNeed = big.NewInt(0).Add(cfxNeed, storageNeed)
 		if cfxBalance.Cmp(cfxNeed) < 0 {
-			clearCacheFile()
+			// clearCacheFile()
 			msg := fmt.Sprintf("Balance of %v is not enough, need %v, has %v",
 				from, util.DisplayValueWithUnit(receiveNeed), util.DisplayValueWithUnit(cfxBalance))
 			util.OsExit(msg)
@@ -582,7 +698,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	} else {
 		cfxNeed := big.NewInt(0).Add(gasNeed, storageNeed)
 		if cfxBalance.Cmp(cfxNeed) < 0 || tokenBalance.Cmp(receiveNeed) < 0 {
-			clearCacheFile()
+			// clearCacheFile()
 			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas,"+
 				"%v need %v, has %v, CFX need %v, has %v",
 				tokenSymbol, from,
@@ -594,31 +710,4 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	}
 
 	fmt.Printf("Balance of %v is enough, need %v, has %v\n", from, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(cfxBalance, tokenSymbol))
-}
-
-func clearCacheFile() {
-	lastPointStr, e := ioutil.ReadFile(resultPath)
-	util.OsExitIfErr(e, "Read result content error")
-
-	if len(lastPointStr) == 0 {
-		os.Remove(resultPath)
-	}
-
-}
-
-// ======= Fail Message =======
-func failSentTx(i int, err error) string {
-	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v", i, "send tx", err)
-}
-
-func failGetTxReceipt(i int, err error) string {
-	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v", i, "get tx receipt", err)
-}
-
-func failTxReceiptNull(i int) string {
-	return fmt.Sprintf("The %vth transaction failed, Failed type: %v", i, "tx receipt null")
-}
-
-func failExecuteTx(i int, errMsg *string) string {
-	return fmt.Sprintf("The %vth transaction failed, Failed type: %v, Error Info: %+v", i, "tx execute failed", util.GetStringVal(errMsg))
 }
