@@ -396,7 +396,7 @@ func getFirstPendingTx(rpcBatchElems []clientRpc.BatchElem) (index int) {
 			return i
 		}
 	}
-	os.Exit(0)
+	// os.Exit(0)
 	return -1
 }
 
