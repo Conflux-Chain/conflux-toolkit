@@ -10,13 +10,15 @@ import (
 )
 
 type enviorment struct {
-	client             *sdk.Client
-	am                 *sdk.AccountManager
-	lastPoint          int
+	client *sdk.Client
+	am     *sdk.AccountManager
+	// SendingsStartIdx          int
 	from               types.Address
 	nonce              *big.Int
 	chainID, networkID uint32
 	epochHeight        uint64
+	pState             ProcessState
+	isDebugMode        bool
 }
 
 type BatchSummary struct {
