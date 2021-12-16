@@ -17,7 +17,8 @@ type enviorment struct {
 	nonce              *big.Int
 	chainID, networkID uint32
 	epochHeight        uint64
-	pState       ProcessState
+	pState             ProcessState
+	isDebugMode        bool
 }
 
 type BatchSummary struct {

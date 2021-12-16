@@ -3,7 +3,7 @@ cd $(dirname $0)
 echo "- 当前工作目录: $(pwd)"
 # rm -rf ./keystore
 
-echo "\n*******************检查空投列表*******************"
+echo "\n******************* 检查空投列表 *******************"
 # check if airdrop list empty
 if [ -s 1_填写空投列表.csv ]; then
     echo "- 检查空投列表完成"
@@ -12,7 +12,7 @@ else
     exit 1
 fi
 
-echo "\n*****************选择转账使用账户*****************"
+echo "\n***************** 选择转账使用账户 *****************"
 while [ "$address" == "" ]; do
 
     # 列出本地地址
@@ -85,7 +85,7 @@ done
 echo "- 将使用该地址空投：${address}"
 
 # select network type, mainnet or testnet?
-echo "\n*******************选择网络类型*******************"
+echo "\n******************* 选择网络类型 *******************"
 echo "- 请手动输入您要空投到的网络类型：测试网输入test, tethys主网输入tethys"
 
 while
@@ -104,6 +104,7 @@ do
         echo "- 您选择的是Tethys主网"
         # url="ws://main.confluxrpc.com/ws"
         url="https://main.confluxrpc.com"
+        # url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
         break
         ;;
 
@@ -113,16 +114,16 @@ do
     esac
 done
 
-echo "\n*******************选择gasPrice*******************"
-echo "- 默认 gasPrice 是 31K drip，当网络拥堵时需要调高gasPrice，输入 \"N\" 跳过设置；输入 \"Y\" 提高gasPrice至 1G drip "
+echo "\n******************* 选择gasPrice *******************"
+echo "- 默认 gasPrice 为 101K drip，当网络拥堵时调高 gasPrice 可以加快打包速度；输入 \"N\" 跳过设置，输入 \"Y\" 提高gasPrice至 1G drip "
 while
     true
     read -r -p "" input
 do
     case $input in
     "N")
-        echo "- 您选择使用 31K drip gasPrice"
-        gasPrice=31000
+        echo "- 您选择使用 101K drip gasPrice"
+        gasPrice=101000
         break
         ;;
 
@@ -138,12 +139,37 @@ do
     esac
 done
 
+echo "\n******************* 选择每批次发送交易数量 *******************"
+echo "- 默认每次发送10笔交易，输入 \"N\" 跳过设置；输入 \"Y\" 降低至每次发送1笔交易 "
+while
+    true
+    read -r -p "" input
+do
+    case $input in
+    "N")
+        echo "- 您选择使用 每批次发送10笔交易"
+        batch=10
+        break
+        ;;
+
+    "Y")
+        echo "- 您选择使用 每批次发送1笔交易"
+        batch=1
+        break
+        ;;
+
+    *)
+        echo "输入无效，请重新输入"
+        ;;
+    esac
+done
+
 echo "\n*******************输入账户密码*******************"
 # start airdrop
 echo "- 将根据空投列表文件 \"1_填写空投列表.csv\" 开始空投"
 echo "- 请根据提示输入账户密码继续\n"
 
-./conflux-toolkit transfer --receivers "./1_填写空投列表.csv" --from ${address} --price ${gasPrice} --weight 1 --url ${url} --batch 500
+./conflux-toolkit transfer --receivers "./1_填写空投列表.csv" --from ${address} --price ${gasPrice} --batch ${batch} --weight 1 --url ${url}
 #  <<EOF
 # 123
 # EOF

@@ -18,6 +18,7 @@ import (
 // ======= Record process state =======
 
 type ProcessState struct {
+	Sender            *cfxaddress.Address
 	ReceiverListHash  string
 	TokenSymbol       string
 	TokenAddress      *cfxaddress.Address
@@ -52,6 +53,7 @@ var m sync.Mutex
 
 func (s *ProcessState) UnmarshalJSON(data []byte) error {
 	type tmpType struct {
+		Sender            *cfxaddress.Address
 		ReceiverListHash  string
 		TokenSymbol       string
 		TokenAddress      *cfxaddress.Address
@@ -69,6 +71,7 @@ func (s *ProcessState) UnmarshalJSON(data []byte) error {
 		return e
 	}
 
+	s.Sender = t.Sender
 	s.ReceiverListHash = t.ReceiverListHash
 	s.SendingStartIdx = t.SendingStartIdx
 	s.TokenSymbol = t.TokenSymbol
@@ -98,6 +101,20 @@ func (s *ProcessState) save() {
 
 	_, e = f.Write(j)
 	util.OsExitIfErr(e, "Failed to save state")
+}
+
+func (s *ProcessState) saveSender(from *cfxaddress.Address) {
+	if s.Sender == nil {
+		s.Sender = from
+		s.save()
+		return
+	}
+
+	if from.String() != s.Sender.String() {
+		s.clearSendings()
+		s.Sender = from
+		s.save()
+	}
 }
 
 func (s *ProcessState) refreshByReceivers(receverList []Receiver) {
@@ -130,4 +147,8 @@ func (s *ProcessState) saveSendings(sendingStartIdx int, rpcBatchElems []clientR
 	s.SendingBatchElems = rpcBatchElems
 	s.SendingStartIdx = sendingStartIdx
 	s.save()
+}
+
+func (s *ProcessState) clearSendings() {
+	s.saveSendings(0, nil)
 }
