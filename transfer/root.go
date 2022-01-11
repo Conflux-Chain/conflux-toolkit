@@ -537,8 +537,9 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 
 func getTransferData(contractAddress types.Address, reciever types.Address, amountInDrip *big.Int) (data hexutil.Bytes) {
 	ctoken := common.MustGetCTokenContract(contractAddress.String())
-	data, err := ctoken.GetData("send", reciever.MustGetCommonAddress(), amountInDrip, []byte{})
-	util.OsExitIfErr(err, "Failed to get data of send ctoken %v to %v amount %v", contractAddress, reciever, amountInDrip)
+	// data, err := ctoken.GetData("send", reciever.MustGetCommonAddress(), amountInDrip, []byte{})
+	data, err := ctoken.GetData("transfer", reciever.MustGetCommonAddress(), amountInDrip)
+	util.OsExitIfErr(err, "Failed to get data of transfer ctoken %v to %v amount %v", contractAddress, reciever, amountInDrip)
 	return data
 }
 
@@ -591,9 +592,9 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 		return
 	}
 	token := tokenList.List[selectedIdx-2]
-	if token.Symbol != "FC" && token.Symbol[0:1] != "c" {
-		util.OsExit("Not support %v currently, please select token FC or starts with 'c', such as cUsdt, cMoon and so on.", token.Symbol)
-	}
+	// if token.Symbol != "FC" && token.Symbol[0:1] != "c" {
+	// 	util.OsExit("Not support %v currently, please select token FC or starts with 'c', such as cUsdt, cMoon and so on.", token.Symbol)
+	// }
 	return token.Symbol, &token.Address
 }
 
