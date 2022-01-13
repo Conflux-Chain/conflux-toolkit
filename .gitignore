@@ -23,3 +23,8 @@ __debug_bin
 
 .vscode
 .DS_Store
+
+# tmp files
+tmp.log
+transfer_result.json
+error.txt
