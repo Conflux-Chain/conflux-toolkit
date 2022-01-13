@@ -145,6 +145,7 @@ func sendOneBatch(elems []clientRpc.BatchElem, summay *BatchSummary) int {
 	return len(elems)
 }
 
+// TODO: bulk estimate for getting exact result
 func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 	if tokenAddress == nil {
 		return types.Estimate{
@@ -153,8 +154,10 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 			StorageCollateralized: types.NewBigInt(0),
 		}
 	}
-	data := getTransferData(*tokenAddress, env.from, big.NewInt(0)).String()
+	randomAddr := cfxaddress.MustNewFromHex("0x0000000000000000000000000000000100000001")
+	data := getTransferData(*tokenAddress, randomAddr, big.NewInt(1)).String()
 	callReq := types.CallRequest{
+		From: &env.from,
 		To:   tokenAddress,
 		Data: &data,
 	}
@@ -167,6 +170,7 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 		_doubledGasLimit = big.NewInt(15000000)
 	}
 	em.GasLimit = types.NewBigIntByRaw(_doubledGasLimit)
+	logrus.Debugf("estimate <from %v, to %v, data %v> result: gas %v, collateral %v", *callReq.From, callReq.To, *callReq.Data, em.GasLimit, em.StorageCollateralized)
 	return em
 }
 
@@ -191,6 +195,8 @@ func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 	err := env.client.ApplyUnsignedTransactionDefault(tx)
 	util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
 	tx.From = &env.from
+
+	logrus.Debugf("sign tx: %+v", tx)
 
 	// sign
 	encoded, err := env.am.SignTransaction(*tx)
@@ -785,13 +791,16 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		aginstResp, err := client.CheckBalanceAgainstTransaction(from, *token, em.GasLimit, _price, em.StorageCollateralized)
 		util.OsExitIfErr(err, "Failed to check balance against tx")
 
+		logrus.Debugf("CheckBalanceAgainstTransaction from %v gaslimit %v gasprice %v storage collateral %v : %+v", from, em.GasLimit, _price, em.StorageCollateralized, aginstResp)
+
 		// needPayGas = aginstResp.WillPayTxFee
 		// needPayStorage = aginstResp.WillPayCollateral
 		if aginstResp.WillPayTxFee {
 			perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
 		}
 		if aginstResp.WillPayCollateral {
-			perTxStorageNeed = new(big.Int).Mul(account.MustParsePrice(), em.StorageCollateralized.ToInt())
+			perUintNeed := new(big.Int).Div(big.NewInt(1e18), big.NewInt(1024))
+			perTxStorageNeed = new(big.Int).Mul(perUintNeed, em.StorageCollateralized.ToInt())
 		}
 	}
 
