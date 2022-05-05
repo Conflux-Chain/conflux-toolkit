@@ -7,11 +7,13 @@ import (
 
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
 )
 
 type enviorment struct {
-	client *sdk.Client
-	am     *sdk.AccountManager
+	client      *sdk.Client
+	am          *sdk.AccountManager
+	ethKeystore *keystore.KeyStore
 	// SendingsStartIdx          int
 	from               types.Address
 	nonce              *big.Int

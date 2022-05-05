@@ -3,6 +3,7 @@ package transfer
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -23,12 +24,14 @@ import (
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/cfxclient/bulk"
-	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	sdkerrors "github.com/Conflux-Chain/go-conflux-sdk/types/errors"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/rlp"
+	clientRpc "github.com/openweb3/go-rpc-provider"
 
 	"github.com/shopspring/decimal"
 
@@ -47,6 +50,7 @@ var (
 	defaultGasLimit = types.NewBigInt(21000)
 
 	// command flags
+	space            string = string(types.SPACE_NATIVE)
 	receiverListFile string
 	weight           decimal.Decimal
 
@@ -80,7 +84,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	defer clearCacheFile()
 
 	receiverInfos := mustParseReceivers()
-	env.pState.refreshByReceivers(receiverInfos)
+	env.pState.refreshReceiversAndSave(receiverInfos)
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
@@ -92,11 +96,11 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 	isContinueBreakPoint := askIfContinueUncompletedTxs(receiverInfos)
 	if !isContinueBreakPoint {
-		env.pState.clearSendings()
+		env.pState.clearSendingsAndSave()
 	}
 
 	// firstly send last send pendings
-	env.pState.saveSelectToken(tokenSymbol, tokenAddress)
+	env.pState.setSelectTokenAndSave(tokenSymbol, tokenAddress)
 	receiverInfos = receiverInfos[env.pState.SendingStartIdx:]
 
 	logrus.Debugf("a receiverInfos len:%v\n", len(receiverInfos))
@@ -134,7 +138,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 func sendOneBatch(elems []clientRpc.BatchElem, summay *BatchSummary) int {
 	oneBatchSummary := batchSendAndWaitReceipt(elems)
-	env.pState.saveSendings(env.pState.SendingStartIdx+len(elems), nil)
+	env.pState.setSendingsAndSave(env.pState.SendingStartIdx+len(elems), nil)
 
 	summay.Merge(oneBatchSummary)
 
@@ -199,7 +203,8 @@ func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 	logrus.Debugf("sign tx: %+v", tx)
 
 	// sign
-	encoded, err := env.am.SignTransaction(*tx)
+	// encoded, err := env.am.SignTransaction(*tx)
+	encoded, err := signTx(tx)
 	util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
 
 	// fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
@@ -213,6 +218,18 @@ func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 		Args:   []interface{}{"0x" + hex.EncodeToString(encoded)},
 		Result: batchElemResult,
 	}
+}
+
+func signTx(tx *types.UnsignedTransaction) ([]byte, error) {
+	switch space {
+	case string(types.SPACE_NATIVE):
+		return env.am.SignTransaction(*tx)
+	case string(types.SPACE_EVM):
+		eTx, addr, chainID := adaptToEthTx(tx)
+		eTx = signEthLegacyTx(env.ethKeystore, addr, eTx, chainID)
+		return rlp.EncodeToBytes(eTx)
+	}
+	return nil, errors.New("unkown space")
 }
 
 func batchSendAndWaitReceipt(rpcBatchElems []clientRpc.BatchElem) BatchSummary {
@@ -247,7 +264,7 @@ func batchSend(rpcBatchElems []clientRpc.BatchElem, needSends []bool) {
 	}
 	fmt.Println("\n== Received tx hash list")
 
-	env.pState.saveSendings(env.pState.SendingStartIdx, rpcBatchElems)
+	env.pState.setSendingsAndSave(env.pState.SendingStartIdx, rpcBatchElems)
 
 	for i, v := range rpcBatchElems {
 		posOfAll := env.pState.SendingStartIdx + 1 + i //- len(rpcBatchElems)
@@ -333,7 +350,7 @@ func resendFirstPendingTx(rpcBatchElems []clientRpc.BatchElem) {
 	rpcBatchElems[pendingTxIdx] = reorgnizedTx
 	rpcBatchElems[pendingTxIdx].Result = &txHashStr
 
-	env.pState.saveSendings(env.pState.SendingStartIdx, rpcBatchElems)
+	env.pState.setSendingsAndSave(env.pState.SendingStartIdx, rpcBatchElems)
 
 	logrus.Debugf("after re-fresh txhash %v, wait receipt", txHashStr)
 	if waitLastReceipt(rpcBatchElems) {
@@ -661,9 +678,8 @@ func inputPassword() string {
 
 // ================= inits ================================
 func initialEnviorment() {
-	env.pState = loadProcessState()
-
 	env.am = account.DefaultAccountManager
+	env.ethKeystore = keystore.NewKeyStore("keystore", keystore.StandardScryptN, keystore.StandardScryptP)
 	env.client = rpc.MustCreateClientWithRetry(100)
 	env.client.SetAccountManager(env.am)
 
@@ -673,12 +689,16 @@ func initialEnviorment() {
 	env.chainID = uint32(status.ChainID)
 	env.networkID = uint32(status.NetworkID)
 
+	env.pState = loadProcessState()
 	env.from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), env.networkID)
-	env.pState.saveSender(&env.from)
+	env.pState.refreshSpaceAndSave(types.SpaceType(space))
+	env.pState.refreshSenderAndSave(&env.from)
 
 	password := inputPassword()
-
 	err = env.am.Unlock(env.from, password)
+	util.OsExitIfErr(err, "Failed to unlock account")
+	ethAcc := mustGetAccount(env.ethKeystore, env.from.MustGetCommonAddress())
+	err = env.ethKeystore.Unlock(ethAcc, password)
 	util.OsExitIfErr(err, "Failed to unlock account")
 
 	fmt.Printf("Account %v is unlocked\n", env.from)

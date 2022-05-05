@@ -9,15 +9,17 @@ import (
 	"sync"
 
 	"github.com/Conflux-Chain/conflux-toolkit/util"
-	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
+	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
+	clientRpc "github.com/openweb3/go-rpc-provider"
 	"github.com/sirupsen/logrus"
 )
 
 // ======= Record process state =======
 
 type ProcessState struct {
+	Space             types.SpaceType
 	Sender            *cfxaddress.Address
 	ReceiverListHash  string
 	TokenSymbol       string
@@ -103,7 +105,14 @@ func (s *ProcessState) save() {
 	util.OsExitIfErr(e, "Failed to save state")
 }
 
-func (s *ProcessState) saveSender(from *cfxaddress.Address) {
+func (s *ProcessState) refreshSpaceAndSave(space types.SpaceType) {
+	if s.Space != space {
+		s.Space = space
+		s.clearSendingsAndSave()
+	}
+}
+
+func (s *ProcessState) refreshSenderAndSave(from *cfxaddress.Address) {
 	if s.Sender == nil {
 		s.Sender = from
 		s.save()
@@ -111,13 +120,13 @@ func (s *ProcessState) saveSender(from *cfxaddress.Address) {
 	}
 
 	if from.String() != s.Sender.String() {
-		s.clearSendings()
+		s.clearSendingsAndSave()
 		s.Sender = from
 		s.save()
 	}
 }
 
-func (s *ProcessState) refreshByReceivers(receverList []Receiver) {
+func (s *ProcessState) refreshReceiversAndSave(receverList []Receiver) {
 	// fmt.Printf("refreshByReceivers, ProcessState,%+v\n", s)
 	r, e := json.Marshal(receverList)
 	util.OsExitIfErr(e, "Failed to marshal receiver list")
@@ -130,7 +139,7 @@ func (s *ProcessState) refreshByReceivers(receverList []Receiver) {
 	s.save()
 }
 
-func (s *ProcessState) saveSelectToken(tokenSymbol string, tokenAddress *cfxaddress.Address) {
+func (s *ProcessState) setSelectTokenAndSave(tokenSymbol string, tokenAddress *cfxaddress.Address) {
 	if s.TokenSymbol != tokenSymbol || s.TokenAddress != tokenAddress {
 		logrus.Debugf("refresh select token,%v,%v\n", s.TokenSymbol, s.TokenAddress)
 		s.TokenSymbol = tokenSymbol
@@ -142,13 +151,13 @@ func (s *ProcessState) saveSelectToken(tokenSymbol string, tokenAddress *cfxaddr
 	}
 }
 
-func (s *ProcessState) saveSendings(sendingStartIdx int, rpcBatchElems []clientRpc.BatchElem) {
+func (s *ProcessState) setSendingsAndSave(sendingStartIdx int, rpcBatchElems []clientRpc.BatchElem) {
 	logrus.Debugf("saveSendings, sendingStartIdx %+v\n", sendingStartIdx)
 	s.SendingBatchElems = rpcBatchElems
 	s.SendingStartIdx = sendingStartIdx
 	s.save()
 }
 
-func (s *ProcessState) clearSendings() {
-	s.saveSendings(0, nil)
+func (s *ProcessState) clearSendingsAndSave() {
+	s.setSendingsAndSave(0, nil)
 }
