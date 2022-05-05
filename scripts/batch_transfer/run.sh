@@ -84,9 +84,39 @@ done
 # address="NET${address#*NET}"
 echo "- 将使用该地址空投：${address}"
 
+# select space type, core space or espace?
+echo "\n******************* 选择 Space *******************"
+echo "- 请手动输入您要空投到的Space：Core Space输入core, eSpace主网输入espace"
+
+while
+    true
+    read -r -p "" input
+do
+    case $input in
+    "core")
+        echo "- 您选择的是Core Space"
+        # url="ws://test.confluxrpc.com"
+        space="core"
+        break
+        ;;
+
+    "espace")
+        echo "- 您选择的是eSpace"
+        # url="ws://main.confluxrpc.com/ws"
+        space="espace"
+        # url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
+        break
+        ;;
+
+    *)
+        echo "输入无效，请重新输入"
+        ;;
+    esac
+done
+
 # select network type, mainnet or testnet?
 echo "\n******************* 选择网络类型 *******************"
-echo "- 请手动输入您要空投到的网络类型：测试网输入test, tethys主网输入tethys"
+echo "- 请手动输入您要空投到的网络类型：测试网输入test, 主网输入main"
 
 while
     true
@@ -96,15 +126,35 @@ do
     "test")
         echo "- 您选择的是测试网"
         # url="ws://test.confluxrpc.com"
-        url="https://test.confluxrpc.com"
+        case ${space} in
+        "core")
+            url="https://test.confluxrpc.com"
+            break
+            ;;
+        "espace")
+            url="https://evmtestnet.confluxscan.net/rpcv2"
+            break
+            ;;
+        esac
         break
         ;;
 
-    "tethys")
-        echo "- 您选择的是Tethys主网"
-        # url="ws://main.confluxrpc.com/ws"
-        url="https://main.confluxrpc.com"
-        # url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
+    "main")
+        echo "- 您选择的是主网"
+        # # url="ws://main.confluxrpc.com/ws"
+        # url="https://main.confluxrpc.com"
+        # # url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
+
+        case ${space} in
+        "core")
+            url="https://main.confluxrpc.com"
+            break
+            ;;
+        "espace")
+            url="https://evm.confluxscan.net/rpcv2"
+            break
+            ;;
+        esac
         break
         ;;
 

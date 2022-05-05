@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	MAINNET = 1029
-	TESTNET = 1
+	MAINNET        = 1029
+	TESTNET        = 1
+	ESPACE_MAINNET = 1030
+	ESPACE_TESTNET = 71
 )
 
 // CreateUsageCommand creates a command to display help.

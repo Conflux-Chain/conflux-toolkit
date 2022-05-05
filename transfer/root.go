@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/Conflux-Chain/go-conflux-sdk/middleware"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +52,7 @@ var (
 	defaultGasLimit = types.NewBigInt(21000)
 
 	// command flags
-	space            string = string(types.SPACE_NATIVE)
+	// space            string = string(types.SPACE_NATIVE)
 	receiverListFile string
 	weight           decimal.Decimal
 
@@ -74,7 +76,7 @@ func init() {
 	rootCmd.PersistentFlags().UintVar(&perBatchNum, "batch", 1000, "send tx number per batch")
 	formatReceiverNumber(sentWeightInStr)
 
-	setMode()
+	getProcessEnv()
 }
 
 func doTransfers(cmd *cobra.Command, args []string) {
@@ -88,7 +90,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
-	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, tokenAddress)
+	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, addrDisplay(tokenAddress))
 
 	// transfer
 	fmt.Println("===== Start batch transfer =====")
@@ -174,7 +176,7 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 		_doubledGasLimit = big.NewInt(15000000)
 	}
 	em.GasLimit = types.NewBigIntByRaw(_doubledGasLimit)
-	logrus.Debugf("estimate <from %v, to %v, data %v> result: gas %v, collateral %v", *callReq.From, callReq.To, *callReq.Data, em.GasLimit, em.StorageCollateralized)
+	logrus.Debugf("estimate <from %v, to %v, data %v> result: gas %v, collateral %v", addrDisplay(callReq.From), addrDisplay(callReq.To), *callReq.Data, em.GasLimit, em.StorageCollateralized)
 	return em
 }
 
@@ -187,8 +189,9 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 		tx := createTx(env.from, v, tokenAddress, env.nonce, estimates)
 		rpcBatchElems = append(rpcBatchElems, createBatchElemItem(tx))
 
+		receiver := cfxaddress.MustNew(v.Address, env.networkID)
 		fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
-			startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
+			startCnt+i, tokenSymbol, addrDisplay(&receiver),
 			util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)), tx.Nonce)
 		env.nonce = env.nonce.Add(env.nonce, big.NewInt(1))
 	}
@@ -221,10 +224,10 @@ func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 }
 
 func signTx(tx *types.UnsignedTransaction) ([]byte, error) {
-	switch space {
-	case string(types.SPACE_NATIVE):
+	switch env.space {
+	case types.SPACE_NATIVE:
 		return env.am.SignTransaction(*tx)
-	case string(types.SPACE_EVM):
+	case types.SPACE_EVM:
 		eTx, addr, chainID := adaptToEthTx(tx)
 		eTx = signEthLegacyTx(env.ethKeystore, addr, eTx, chainID)
 		return rlp.EncodeToBytes(eTx)
@@ -562,7 +565,7 @@ func getTransferData(contractAddress types.Address, reciever types.Address, amou
 	ctoken := common.MustGetCTokenContract(contractAddress.String())
 	// data, err := ctoken.GetData("send", reciever.MustGetCommonAddress(), amountInDrip, []byte{})
 	data, err := ctoken.GetData("transfer", reciever.MustGetCommonAddress(), amountInDrip)
-	util.OsExitIfErr(err, "Failed to get data of transfer ctoken %v to %v amount %v", contractAddress, reciever, amountInDrip)
+	util.OsExitIfErr(err, "Failed to get data of transfer ctoken %v to %v amount %v", addrDisplay(&contractAddress), addrDisplay(&reciever), amountInDrip)
 	return data
 }
 
@@ -576,14 +579,7 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 		return "", nil
 	}
 
-	networkId, err := env.client.GetNetworkID()
-	util.OsExitIfErr(err, "Failed to get networkID")
-
-	url := "https://confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
-	if networkId == util.TESTNET {
-		url = "https://testnet.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
-	}
-
+	url := getTokenListUrl()
 	req, _ := http.NewRequest("GET", url, nil)
 
 	res, err := http.DefaultClient.Do(req)
@@ -603,10 +599,10 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	json.Unmarshal([]byte(body), &tokenList)
 
 	// print token list for user select
-	fmt.Println("These are the token list you could batch transfer:")
-	fmt.Printf("%v. token: %v\n", 1, "CFX")
+	fmt.Println("\nThese are the token list you could batch transfer:")
+	fmt.Printf("%v. Token: %v\n", 1, "CFX")
 	for i := range tokenList.List {
-		fmt.Printf("%v. token: %v, contract address: %v\n", i+2, tokenList.List[i].Symbol, tokenList.List[i].Address)
+		fmt.Printf("%v. Token: %v, Contract Address: %v\n", i+2, tokenList.List[i].Symbol, addrDisplay(&tokenList.List[i].Address))
 	}
 
 	selectedIdx := getSelectedIndex(len(tokenList.List) + 2)
@@ -680,18 +676,27 @@ func inputPassword() string {
 func initialEnviorment() {
 	env.am = account.DefaultAccountManager
 	env.ethKeystore = keystore.NewKeyStore("keystore", keystore.StandardScryptN, keystore.StandardScryptP)
+
 	env.client = rpc.MustCreateClientWithRetry(100)
 	env.client.SetAccountManager(env.am)
+
+	// fmt.Printf("env.logLevel: %v\n", env.logLevel)
+	if env.logLevel >= logrus.DebugLevel {
+		env.client.UseCallRpcMiddleware(middleware.CallRpcConsoleMiddleware)
+		env.client.UseBatchCallRpcMiddleware(middleware.BatchCallRpcConsoleMiddleware)
+	}
 
 	status, err := env.client.GetStatus()
 	util.OsExitIfErr(err, "Failed to get status")
 
 	env.chainID = uint32(status.ChainID)
 	env.networkID = uint32(status.NetworkID)
+	env.space = getSpace()
 
 	env.pState = loadProcessState()
 	env.from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), env.networkID)
-	env.pState.refreshSpaceAndSave(types.SpaceType(space))
+	env.fromEspace = mustGetAccount(env.ethKeystore, env.from.MustGetCommonAddress()).Address
+	// env.pState.refreshSpaceAndSave(types.SpaceType(space))
 	env.pState.refreshSenderAndSave(&env.from)
 
 	password := inputPassword()
@@ -701,12 +706,12 @@ func initialEnviorment() {
 	err = env.ethKeystore.Unlock(ethAcc, password)
 	util.OsExitIfErr(err, "Failed to unlock account")
 
-	fmt.Printf("Account %v is unlocked\n", env.from)
+	fmt.Printf("Account %v is unlocked\n", addrDisplay(&env.from))
 
 	// get inital Nonce
-	_nonce, e := env.client.TxPool().NextNonce(env.from)
+	_nonce, e := env.client.TxPool().NextNonce(*getFromAddress())
 	env.nonce = _nonce.ToInt()
-	util.OsExitIfErr(e, "Failed to get nonce of from %v", env.from)
+	util.OsExitIfErr(e, "Failed to get nonce of from %v", addrDisplay(&env.from))
 
 	epoch, err := env.client.GetEpochNumber(types.EpochLatestState)
 	util.OsExitIfErr(err, "Failed to get epoch")
@@ -797,21 +802,21 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		storageNeed *big.Int = big.NewInt(0)
 	)
 
-	_balance, err := client.GetBalance(from)
+	_balance, err := client.GetBalance(*getFromAddress())
 	cfxBalance = _balance.ToInt()
-	util.OsExitIfErr(err, "Failed to get CFX balance of %v", from)
+	util.OsExitIfErr(err, "Failed to get CFX balance of %v", addrDisplay(&from))
 
 	if token != nil {
 		contract := common.MustGetCTokenContract(token.String())
 		err := contract.Call(nil, &tokenBalance, "balanceOf", from.MustGetCommonAddress())
-		util.OsExitIfErr(err, "Failed to get token %v balance of %v", tokenSymbol, from)
+		util.OsExitIfErr(err, "Failed to get token %v balance of %v", tokenSymbol, addrDisplay(&from))
 
 		_price := (*hexutil.Big)(account.MustParsePrice())
 		em := estimateGasAndCollateral(token)
 		aginstResp, err := client.CheckBalanceAgainstTransaction(from, *token, em.GasLimit, _price, em.StorageCollateralized)
 		util.OsExitIfErr(err, "Failed to check balance against tx")
 
-		logrus.Debugf("CheckBalanceAgainstTransaction from %v gaslimit %v gasprice %v storage collateral %v : %+v", from, em.GasLimit, _price, em.StorageCollateralized, aginstResp)
+		logrus.Debugf("CheckBalanceAgainstTransaction from %v gaslimit %v gasprice %v storage collateral %v : %+v", addrDisplay(&from), em.GasLimit, _price, em.StorageCollateralized, aginstResp)
 
 		// needPayGas = aginstResp.WillPayTxFee
 		// needPayStorage = aginstResp.WillPayCollateral
@@ -842,7 +847,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		if cfxBalance.Cmp(cfxNeed) < 0 {
 			// clearCacheFile()
 			msg := fmt.Sprintf("Balance of %v is not enough,  need %v, has %v",
-				from, util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance))
+				addrDisplay(&from), util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance))
 			util.OsExit(msg)
 		}
 	} else {
@@ -851,7 +856,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 			// clearCacheFile()
 			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas,"+
 				"%v need %v, has %v, CFX need %v, has %v",
-				tokenSymbol, from,
+				tokenSymbol, addrDisplay(&from),
 				tokenSymbol, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(tokenBalance, tokenSymbol),
 				util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance),
 			)
@@ -863,24 +868,92 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		tokenBalance = cfxBalance
 	}
 
-	fmt.Printf("Balance of %v is enough, %v need %v, fee need %v; token has %v, cfx has %v\n", from, tokenSymbol,
+	fmt.Printf("Balance of %v is enough, %v need %v, fee need %v; token has %v, cfx has %v\n", addrDisplay(&from), tokenSymbol,
 		util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(new(big.Int).Add(gasNeed, storageNeed)),
 		util.DisplayValueWithUnit(tokenBalance, tokenSymbol), util.DisplayValueWithUnit(cfxBalance))
 }
 
 func exitIfHasPendingTxs() {
 	// exit if has pending tx
-	pending, e := env.client.GetAccountPendingInfo(env.from)
-	util.OsExitIfErr(e, "Failed to get account pending info")
-	if pending.PendingCount.ToInt().Sign() == 1 {
-		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", env.from)
+	nonce, err := env.client.GetNextNonce(*getFromAddress())
+	util.OsExitIfErr(err, "Failed to get account next nonce")
+	pendingNonce, err := env.client.TxPool().NextNonce(*getFromAddress())
+	util.OsExitIfErr(err, "Failed to get account pending nonce")
+	if nonce.ToInt().Cmp(pendingNonce.ToInt()) < 0 {
+		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", addrDisplay(&env.from))
 		os.Exit(0)
 	}
 }
 
-func setMode() {
-	levelStr := os.Getenv("MODE")
-	if levelStr == "DEBUG" || levelStr == "debug" {
+func getProcessEnv() {
+	modeStr := os.Getenv("MODE")
+	if modeStr == "DEBUG" || modeStr == "debug" {
 		env.isDebugMode = true
 	}
+
+	env.logLevel = logrus.InfoLevel
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	if logLevelStr != "" {
+		logLevel, err := strconv.Atoi(logLevelStr)
+		if err != nil {
+			util.OsExitIfErr(err, "Failed to get log level")
+		}
+		env.logLevel = logrus.Level(logLevel)
+	}
+}
+
+func getTokenListUrl() string {
+	switch env.networkID {
+	case util.MAINNET:
+		return "https://confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+	case util.TESTNET:
+		return "https://testnet.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+	case util.ESPACE_MAINNET:
+		return "https://evm.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+	case util.ESPACE_TESTNET:
+		return "https://evmtestnet.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+	}
+	panic("unknown network")
+}
+
+func getSpace() types.SpaceType {
+	switch env.networkID {
+	case util.MAINNET:
+		return types.SPACE_NATIVE
+	case util.TESTNET:
+		return types.SPACE_NATIVE
+	case util.ESPACE_MAINNET:
+		return types.SPACE_EVM
+	case util.ESPACE_TESTNET:
+		return types.SPACE_EVM
+	}
+	panic("unknown network")
+}
+
+func addrDisplay(addr *cfxaddress.Address) string {
+	if addr == nil {
+		return "nil"
+	}
+
+	switch env.space {
+	case types.SPACE_NATIVE:
+		return addr.String()
+	case types.SPACE_EVM:
+		if addr.String() == env.from.String() {
+			return env.fromEspace.String()
+		}
+		return addr.MustGetCommonAddress().String()
+	}
+	panic("unknown space")
+}
+
+func getFromAddress() *cfxaddress.Address {
+	switch env.space {
+	case types.SPACE_NATIVE:
+		return &env.from
+	case types.SPACE_EVM:
+		addr := cfxaddress.MustNewFromCommon(env.fromEspace, env.networkID)
+		return &addr
+	}
+	panic("unknown space")
 }

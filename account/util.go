@@ -8,10 +8,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Conflux-Chain/conflux-toolkit/util"
 	common "github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
+	"github.com/Conflux-Chain/go-conflux-sdk/utils/addressutil"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/howeyc/gopass"
 	"github.com/spf13/cobra"
 )
@@ -51,7 +54,7 @@ func MustParseAccount() *types.Address {
 		return &addr
 	}
 
-	accounts := listAccountsAsc()
+	accounts, _ := listAccountsAsc()
 	if len(accounts) == 0 {
 		panic("No account found!")
 	}
@@ -82,18 +85,37 @@ func MustParseValue() *big.Int {
 	return common.MustParseBigInt(ValueCfx, 18)
 }
 
-func listAccountsAsc() []types.Address {
+// listAccountsAsc returns all accounts in core-space format and espace format
+func listAccountsAsc() ([]types.Address, []ethCommon.Address) {
 	var accounts []types.Address
+	var espaceAccounts []ethCommon.Address
 
-	for _, addr := range am.List() {
-		accounts = append(accounts, addr)
+	accounts = append(accounts, am.List()...)
+
+	for _, addr := range ethKeystore.Accounts() {
+		espaceAccounts = append(espaceAccounts, addr.Address)
 	}
 
 	sort.Slice(accounts, func(i, j int) bool {
 		return strings.Compare(accounts[i].GetHexAddress(), accounts[j].GetHexAddress()) == -1
 	})
 
-	return accounts
+	sortedEspaceAddrs := make([]ethCommon.Address, 0)
+	for _, cfxAddr := range accounts {
+		for _, ethAddr := range espaceAccounts {
+			converted := addressutil.EtherAddressToCfxAddress(ethAddr, false, util.MAINNET)
+			if converted.String() == cfxAddr.String() {
+				sortedEspaceAddrs = append(sortedEspaceAddrs, ethAddr)
+				break
+			}
+		}
+	}
+
+	if len(sortedEspaceAddrs) != len(accounts) {
+		util.Panic("not complete matched between eth accounts and cfx accounts, %v!=%v", len(sortedEspaceAddrs), len(accounts))
+	}
+
+	return accounts, sortedEspaceAddrs
 }
 
 func mustInputAndConfirmPassword() string {
