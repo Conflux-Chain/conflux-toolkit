@@ -74,6 +74,7 @@ func init() {
 func doTransfers(cmd *cobra.Command, args []string) {
 	fmt.Println("Initial enviorment")
 	env = *NewEnviorment()
+	env.pState.refreshChainIdAndSave(env.chainID)
 
 	defer clearCacheFile()
 
@@ -111,7 +112,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		exitIfHasPendingTxs()
 		// check balance
 		fmt.Println("===== Check if balance enough =====")
-		checkBalance(env.client, env.from, receiverInfos, tokenAddress, tokenSymbol)
+		checkBalance(env.client, *env.GetFromAddressOfSpace(), receiverInfos, tokenAddress, tokenSymbol)
 
 		estimates := estimateGasAndCollateral(tokenAddress)
 		for len(receiverInfos) > 0 {
@@ -153,9 +154,9 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 		}
 	}
 	randomAddr := cfxaddress.MustNewFromHex("0x0000000000000000000000000000000100000001")
-	data := getTransferData(*tokenAddress, randomAddr, big.NewInt(1)).String()
+	data := getTransferData(*tokenAddress, randomAddr, big.NewInt(0)).String()
 	callReq := types.CallRequest{
-		From: &env.from,
+		From: env.GetFromAddressOfSpace(),
 		To:   tokenAddress,
 		Data: &data,
 	}
@@ -178,7 +179,7 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 
 	rpcBatchElems := []clientRpc.BatchElem{}
 	for i, v := range oneBatchReceiver {
-		tx := createTx(env.from, v, tokenAddress, env.nonce, estimates)
+		tx := createTx(*env.GetFromAddressOfSpace(), v, tokenAddress, env.nonce, estimates)
 		rpcBatchElems = append(rpcBatchElems, createBatchElemItem(tx))
 
 		receiver := cfxaddress.MustNew(v.Address, env.networkID)
@@ -193,7 +194,7 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 	err := env.client.ApplyUnsignedTransactionDefault(tx)
 	util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
-	tx.From = &env.from
+	tx.From = env.GetFromAddressOfSpace()
 
 	logrus.Debugf("sign tx: %+v", tx)
 
@@ -681,19 +682,23 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 
 		_price := (*hexutil.Big)(account.MustParsePrice())
 		em := estimateGasAndCollateral(token)
-		aginstResp, err := client.CheckBalanceAgainstTransaction(from, *token, em.GasLimit, _price, em.StorageCollateralized)
-		util.OsExitIfErr(err, "Failed to check balance against tx")
 
-		logrus.Debugf("CheckBalanceAgainstTransaction from %v gaslimit %v gasprice %v storage collateral %v : %+v", env.AddrDisplay(&from), em.GasLimit, _price, em.StorageCollateralized, aginstResp)
+		perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
+		if env.space == types.SPACE_NATIVE {
+			aginstResp, err := client.CheckBalanceAgainstTransaction(from, *token, em.GasLimit, _price, em.StorageCollateralized)
+			util.OsExitIfErr(err, "Failed to check balance against tx")
 
-		// needPayGas = aginstResp.WillPayTxFee
-		// needPayStorage = aginstResp.WillPayCollateral
-		if aginstResp.WillPayTxFee {
-			perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
-		}
-		if aginstResp.WillPayCollateral {
-			perUintNeed := new(big.Int).Div(big.NewInt(1e18), big.NewInt(1024))
-			perTxStorageNeed = new(big.Int).Mul(perUintNeed, em.StorageCollateralized.ToInt())
+			logrus.Debugf("CheckBalanceAgainstTransaction from %v gaslimit %v gasprice %v storage collateral %v : %+v", env.AddrDisplay(&from), em.GasLimit, _price, em.StorageCollateralized, aginstResp)
+
+			// needPayGas = aginstResp.WillPayTxFee
+			// needPayStorage = aginstResp.WillPayCollateral
+			if aginstResp.WillPayTxFee {
+				perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
+			}
+			if aginstResp.WillPayCollateral {
+				perUintNeed := new(big.Int).Div(big.NewInt(1e18), big.NewInt(1024))
+				perTxStorageNeed = new(big.Int).Mul(perUintNeed, em.StorageCollateralized.ToInt())
+			}
 		}
 	}
 
@@ -722,7 +727,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		cfxNeed := big.NewInt(0).Add(gasNeed, storageNeed)
 		if cfxBalance.Cmp(cfxNeed) < 0 || tokenBalance.Cmp(receiveNeed) < 0 {
 			// clearCacheFile()
-			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas,"+
+			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas, "+
 				"%v need %v, has %v, CFX need %v, has %v",
 				tokenSymbol, env.AddrDisplay(&from),
 				tokenSymbol, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(tokenBalance, tokenSymbol),
@@ -743,12 +748,14 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 
 func exitIfHasPendingTxs() {
 	// exit if has pending tx
-	nonce, err := env.client.GetNextNonce(*env.GetFromAddressOfSpace())
+	from := env.GetFromAddressOfSpace()
+	nonce, err := env.client.GetNextNonce(*from)
 	util.OsExitIfErr(err, "Failed to get account next nonce")
-	pendingNonce, err := env.client.TxPool().NextNonce(*env.GetFromAddressOfSpace())
+
+	pendingNonce, err := env.client.TxPool().NextNonce(*from)
 	util.OsExitIfErr(err, "Failed to get account pending nonce")
 	if nonce.ToInt().Cmp(pendingNonce.ToInt()) < 0 {
-		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", env.AddrDisplay(&env.from))
+		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", env.AddrDisplay(from))
 		os.Exit(0)
 	}
 }

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"runtime/debug"
 	"sync"
 
 	"github.com/Conflux-Chain/conflux-toolkit/util"
-	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
 	clientRpc "github.com/openweb3/go-rpc-provider"
@@ -19,7 +19,7 @@ import (
 // ======= Record process state =======
 
 type ProcessState struct {
-	Space             types.SpaceType
+	ChainID           uint32
 	Sender            *cfxaddress.Address
 	ReceiverListHash  string
 	TokenSymbol       string
@@ -29,6 +29,7 @@ type ProcessState struct {
 }
 
 func clearCacheFile() {
+	debug.PrintStack()
 	os.Remove(resultPath)
 }
 
@@ -55,6 +56,7 @@ var m sync.Mutex
 
 func (s *ProcessState) UnmarshalJSON(data []byte) error {
 	type tmpType struct {
+		ChainID           uint32
 		Sender            *cfxaddress.Address
 		ReceiverListHash  string
 		TokenSymbol       string
@@ -73,6 +75,7 @@ func (s *ProcessState) UnmarshalJSON(data []byte) error {
 		return e
 	}
 
+	s.ChainID = t.ChainID
 	s.Sender = t.Sender
 	s.ReceiverListHash = t.ReceiverListHash
 	s.SendingStartIdx = t.SendingStartIdx
@@ -105,9 +108,10 @@ func (s *ProcessState) save() {
 	util.OsExitIfErr(e, "Failed to save state")
 }
 
-func (s *ProcessState) refreshSpaceAndSave(space types.SpaceType) {
-	if s.Space != space {
-		s.Space = space
+func (s *ProcessState) refreshChainIdAndSave(chainID uint32) {
+	if s.ChainID != chainID {
+		fmt.Printf("refresh chain id,%v,%v\n", s.ChainID, chainID)
+		s.ChainID = chainID
 		s.clearSendingsAndSave()
 	}
 }
@@ -159,5 +163,6 @@ func (s *ProcessState) setSendingsAndSave(sendingStartIdx int, rpcBatchElems []c
 }
 
 func (s *ProcessState) clearSendingsAndSave() {
+	debug.PrintStack()
 	s.setSendingsAndSave(0, nil)
 }
