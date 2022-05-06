@@ -165,21 +165,21 @@ do
 done
 
 echo "\n******************* 选择gasPrice *******************"
-echo "- 默认 gasPrice 为 1000K drip，当网络拥堵时调高 gasPrice 可以加快打包速度；输入 \"N\" 跳过设置，输入 \"Y\" 提高gasPrice至 1G drip "
+echo "- 默认 gasPrice 为 1G drip，当网络拥堵时调高 gasPrice 可以加快打包速度；输入 \"N\" 跳过设置，输入 \"Y\" 提高gasPrice至 5G drip "
 while
     true
     read -r -p "" input
 do
     case $input in
     "N")
-        echo "- 您选择使用 1000K drip gasPrice"
-        gasPrice=1000000
+        echo "- 您选择使用 1G drip gasPrice"
+        gasPrice=1000000000
         break
         ;;
 
     "Y")
-        echo "- 您选择使用 1G drip gasPrice"
-        gasPrice=1000000000
+        echo "- 您选择使用 5G drip gasPrice"
+        gasPrice=5000000000
         break
         ;;
 
