@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"runtime/debug"
 	"sync"
 
 	"github.com/Conflux-Chain/conflux-toolkit/util"
@@ -29,7 +28,6 @@ type ProcessState struct {
 }
 
 func clearCacheFile() {
-	debug.PrintStack()
 	os.Remove(resultPath)
 }
 
@@ -163,6 +161,6 @@ func (s *ProcessState) setSendingsAndSave(sendingStartIdx int, rpcBatchElems []c
 }
 
 func (s *ProcessState) clearSendingsAndSave() {
-	debug.PrintStack()
+	// debug.PrintStack()
 	s.setSendingsAndSave(0, nil)
 }
