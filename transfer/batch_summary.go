@@ -2,33 +2,8 @@ package transfer
 
 import (
 	"fmt"
-	"math/big"
 	"strings"
-
-	sdk "github.com/Conflux-Chain/go-conflux-sdk"
-	"github.com/Conflux-Chain/go-conflux-sdk/types"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/sirupsen/logrus"
 )
-
-type enviorment struct {
-	client      *sdk.Client
-	am          *sdk.AccountManager
-	ethKeystore *keystore.KeyStore
-	// SendingsStartIdx          int
-	from       types.Address
-	fromEspace common.Address
-
-	nonce              *big.Int
-	chainID, networkID uint32
-	space              types.SpaceType
-	epochHeight        uint64
-	pState             ProcessState
-
-	isDebugMode bool
-	logLevel    logrus.Level
-}
 
 type BatchSummary struct {
 	total                 int

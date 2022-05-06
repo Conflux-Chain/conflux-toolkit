@@ -12,6 +12,7 @@ require (
 	github.com/shopspring/decimal v1.3.1
 	github.com/sirupsen/logrus v1.2.0
 	github.com/spf13/cobra v1.0.0
+	gotest.tools v2.2.0+incompatible
 )
 
 // replace github.com/Conflux-Chain/go-conflux-sdk v1.0.15 => github.com/wangdayong228/go-conflux-sdk v0.2.0
