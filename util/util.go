@@ -12,19 +12,26 @@ import (
 )
 
 const (
-	MAINNET = 1029
-	TESTNET = 1
+	MAINNET        = 1029
+	TESTNET        = 1
+	ESPACE_MAINNET = 1030
+	ESPACE_TESTNET = 71
 )
 
 // CreateUsageCommand creates a command to display help.
-func CreateUsageCommand(use, short string) *cobra.Command {
-	return &cobra.Command{
+func CreateUsageCommand(use, short string, version ...string) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 		},
 	}
+	if len(version) > 0 {
+		cmd.Version = version[0]
+	}
+
+	return cmd
 }
 
 // MustParseBigInt parses the specified value to number and returns value * 10 ^ exp.

@@ -2,24 +2,8 @@ package transfer
 
 import (
 	"fmt"
-	"math/big"
 	"strings"
-
-	sdk "github.com/Conflux-Chain/go-conflux-sdk"
-	"github.com/Conflux-Chain/go-conflux-sdk/types"
 )
-
-type enviorment struct {
-	client *sdk.Client
-	am     *sdk.AccountManager
-	// SendingsStartIdx          int
-	from               types.Address
-	nonce              *big.Int
-	chainID, networkID uint32
-	epochHeight        uint64
-	pState             ProcessState
-	isDebugMode        bool
-}
 
 type BatchSummary struct {
 	total                 int

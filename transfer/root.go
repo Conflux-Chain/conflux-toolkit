@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"reflect"
-	"regexp"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -23,12 +22,12 @@ import (
 	"github.com/Conflux-Chain/conflux-toolkit/util"
 	sdk "github.com/Conflux-Chain/go-conflux-sdk"
 	"github.com/Conflux-Chain/go-conflux-sdk/cfxclient/bulk"
-	clientRpc "github.com/Conflux-Chain/go-conflux-sdk/rpc"
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	sdkerrors "github.com/Conflux-Chain/go-conflux-sdk/types/errors"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	clientRpc "github.com/openweb3/go-rpc-provider"
 
 	"github.com/shopspring/decimal"
 
@@ -47,11 +46,12 @@ var (
 	defaultGasLimit = types.NewBigInt(21000)
 
 	// command flags
+	// space            string = string(types.SPACE_NATIVE)
 	receiverListFile string
 	weight           decimal.Decimal
 
 	perBatchNum uint
-	env         enviorment
+	env         Enviorment
 )
 
 func init() {
@@ -69,22 +69,21 @@ func init() {
 
 	rootCmd.PersistentFlags().UintVar(&perBatchNum, "batch", 1000, "send tx number per batch")
 	formatReceiverNumber(sentWeightInStr)
-
-	setMode()
 }
 
 func doTransfers(cmd *cobra.Command, args []string) {
 	fmt.Println("Initial enviorment")
-	initialEnviorment()
+	env = *NewEnviorment()
+	env.pState.refreshChainIdAndSave(env.chainID)
 
 	defer clearCacheFile()
 
 	receiverInfos := mustParseReceivers()
-	env.pState.refreshByReceivers(receiverInfos)
+	env.pState.refreshReceiversAndSave(receiverInfos)
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
-	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, tokenAddress)
+	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, env.AddrDisplay(tokenAddress))
 
 	// transfer
 	fmt.Println("===== Start batch transfer =====")
@@ -92,11 +91,11 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 	isContinueBreakPoint := askIfContinueUncompletedTxs(receiverInfos)
 	if !isContinueBreakPoint {
-		env.pState.clearSendings()
+		env.pState.clearSendingsAndSave()
 	}
 
 	// firstly send last send pendings
-	env.pState.saveSelectToken(tokenSymbol, tokenAddress)
+	env.pState.setSelectTokenAndSave(tokenSymbol, tokenAddress)
 	receiverInfos = receiverInfos[env.pState.SendingStartIdx:]
 
 	logrus.Debugf("a receiverInfos len:%v\n", len(receiverInfos))
@@ -113,7 +112,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		exitIfHasPendingTxs()
 		// check balance
 		fmt.Println("===== Check if balance enough =====")
-		checkBalance(env.client, env.from, receiverInfos, tokenAddress, tokenSymbol)
+		checkBalance(env.client, *env.GetFromAddressOfSpace(), receiverInfos, tokenAddress, tokenSymbol)
 
 		estimates := estimateGasAndCollateral(tokenAddress)
 		for len(receiverInfos) > 0 {
@@ -134,7 +133,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 func sendOneBatch(elems []clientRpc.BatchElem, summay *BatchSummary) int {
 	oneBatchSummary := batchSendAndWaitReceipt(elems)
-	env.pState.saveSendings(env.pState.SendingStartIdx+len(elems), nil)
+	env.pState.setSendingsAndSave(env.pState.SendingStartIdx+len(elems), nil)
 
 	summay.Merge(oneBatchSummary)
 
@@ -155,9 +154,9 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 		}
 	}
 	randomAddr := cfxaddress.MustNewFromHex("0x0000000000000000000000000000000100000001")
-	data := getTransferData(*tokenAddress, randomAddr, big.NewInt(1)).String()
+	data := getTransferData(*tokenAddress, randomAddr, big.NewInt(0)).String()
 	callReq := types.CallRequest{
-		From: &env.from,
+		From: env.GetFromAddressOfSpace(),
 		To:   tokenAddress,
 		Data: &data,
 	}
@@ -170,7 +169,7 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 		_doubledGasLimit = big.NewInt(15000000)
 	}
 	em.GasLimit = types.NewBigIntByRaw(_doubledGasLimit)
-	logrus.Debugf("estimate <from %v, to %v, data %v> result: gas %v, collateral %v", *callReq.From, callReq.To, *callReq.Data, em.GasLimit, em.StorageCollateralized)
+	logrus.Debugf("estimate <from %v, to %v, data %v> result: gas %v, collateral %v", env.AddrDisplay(callReq.From), env.AddrDisplay(callReq.To), *callReq.Data, em.GasLimit, em.StorageCollateralized)
 	return em
 }
 
@@ -180,11 +179,12 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 
 	rpcBatchElems := []clientRpc.BatchElem{}
 	for i, v := range oneBatchReceiver {
-		tx := createTx(env.from, v, tokenAddress, env.nonce, estimates)
+		tx := createTx(*env.GetFromAddressOfSpace(), v, tokenAddress, env.nonce, estimates)
 		rpcBatchElems = append(rpcBatchElems, createBatchElemItem(tx))
 
+		receiver := cfxaddress.MustNew(v.Address, env.networkID)
 		fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
-			startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
+			startCnt+i, tokenSymbol, env.AddrDisplay(&receiver),
 			util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)), tx.Nonce)
 		env.nonce = env.nonce.Add(env.nonce, big.NewInt(1))
 	}
@@ -194,12 +194,13 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 	err := env.client.ApplyUnsignedTransactionDefault(tx)
 	util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
-	tx.From = &env.from
+	tx.From = env.GetFromAddressOfSpace()
 
 	logrus.Debugf("sign tx: %+v", tx)
 
 	// sign
-	encoded, err := env.am.SignTransaction(*tx)
+	// encoded, err := env.am.SignTransaction(*tx)
+	encoded, err := env.SignTx(tx)
 	util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
 
 	// fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
@@ -247,7 +248,7 @@ func batchSend(rpcBatchElems []clientRpc.BatchElem, needSends []bool) {
 	}
 	fmt.Println("\n== Received tx hash list")
 
-	env.pState.saveSendings(env.pState.SendingStartIdx, rpcBatchElems)
+	env.pState.setSendingsAndSave(env.pState.SendingStartIdx, rpcBatchElems)
 
 	for i, v := range rpcBatchElems {
 		posOfAll := env.pState.SendingStartIdx + 1 + i //- len(rpcBatchElems)
@@ -333,7 +334,7 @@ func resendFirstPendingTx(rpcBatchElems []clientRpc.BatchElem) {
 	rpcBatchElems[pendingTxIdx] = reorgnizedTx
 	rpcBatchElems[pendingTxIdx].Result = &txHashStr
 
-	env.pState.saveSendings(env.pState.SendingStartIdx, rpcBatchElems)
+	env.pState.setSendingsAndSave(env.pState.SendingStartIdx, rpcBatchElems)
 
 	logrus.Debugf("after re-fresh txhash %v, wait receipt", txHashStr)
 	if waitLastReceipt(rpcBatchElems) {
@@ -378,7 +379,7 @@ func improveTxGasPrice(be clientRpc.BatchElem) clientRpc.BatchElem {
 
 	signedTx := &types.SignedTransaction{}
 	err = signedTx.Decode(rawTxByts, env.networkID)
-	util.OsExitIfErr(err, "%v. Failed to decode signed tx %v\n")
+	util.OsExitIfErr(err, "Failed to decode signed tx %v", signedTx)
 
 	logrus.Debugf("before gasPrice %v\n", signedTx.UnsignedTransaction.GasPrice.ToInt())
 	signedTx.UnsignedTransaction.GasPrice = types.NewBigIntByRaw(new(big.Int).Add(signedTx.UnsignedTransaction.GasPrice.ToInt(), big.NewInt(1000)))
@@ -545,7 +546,7 @@ func getTransferData(contractAddress types.Address, reciever types.Address, amou
 	ctoken := common.MustGetCTokenContract(contractAddress.String())
 	// data, err := ctoken.GetData("send", reciever.MustGetCommonAddress(), amountInDrip, []byte{})
 	data, err := ctoken.GetData("transfer", reciever.MustGetCommonAddress(), amountInDrip)
-	util.OsExitIfErr(err, "Failed to get data of transfer ctoken %v to %v amount %v", contractAddress, reciever, amountInDrip)
+	util.OsExitIfErr(err, "Failed to get data of transfer ctoken %v to %v amount %v", env.AddrDisplay(&contractAddress), env.AddrDisplay(&reciever), amountInDrip)
 	return data
 }
 
@@ -559,14 +560,7 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 		return "", nil
 	}
 
-	networkId, err := env.client.GetNetworkID()
-	util.OsExitIfErr(err, "Failed to get networkID")
-
-	url := "https://confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
-	if networkId == util.TESTNET {
-		url = "https://testnet.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
-	}
-
+	url := env.GetTokenListUrl()
 	req, _ := http.NewRequest("GET", url, nil)
 
 	res, err := http.DefaultClient.Do(req)
@@ -586,10 +580,10 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	json.Unmarshal([]byte(body), &tokenList)
 
 	// print token list for user select
-	fmt.Println("These are the token list you could batch transfer:")
-	fmt.Printf("%v. token: %v\n", 1, "CFX")
+	fmt.Println("\nThese are the token list you could batch transfer:")
+	fmt.Printf("%v. Token: %v\n", 1, "CFX")
 	for i := range tokenList.List {
-		fmt.Printf("%v. token: %v, contract address: %v\n", i+2, tokenList.List[i].Symbol, tokenList.List[i].Address)
+		fmt.Printf("%v. Token: %v, Contract Address: %v\n", i+2, tokenList.List[i].Symbol, env.AddrDisplay(&tokenList.List[i].Address))
 	}
 
 	selectedIdx := getSelectedIndex(len(tokenList.List) + 2)
@@ -652,47 +646,6 @@ func getSelectedIndex(tokensCount int) int {
 	return selectedIdx
 }
 
-func inputPassword() string {
-	if env.isDebugMode {
-		return "123"
-	}
-	return account.MustInputPassword("Enter password: ")
-}
-
-// ================= inits ================================
-func initialEnviorment() {
-	env.pState = loadProcessState()
-
-	env.am = account.DefaultAccountManager
-	env.client = rpc.MustCreateClientWithRetry(100)
-	env.client.SetAccountManager(env.am)
-
-	status, err := env.client.GetStatus()
-	util.OsExitIfErr(err, "Failed to get status")
-
-	env.chainID = uint32(status.ChainID)
-	env.networkID = uint32(status.NetworkID)
-
-	env.from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), env.networkID)
-	env.pState.saveSender(&env.from)
-
-	password := inputPassword()
-
-	err = env.am.Unlock(env.from, password)
-	util.OsExitIfErr(err, "Failed to unlock account")
-
-	fmt.Printf("Account %v is unlocked\n", env.from)
-
-	// get inital Nonce
-	_nonce, e := env.client.TxPool().NextNonce(env.from)
-	env.nonce = _nonce.ToInt()
-	util.OsExitIfErr(e, "Failed to get nonce of from %v", env.from)
-
-	epoch, err := env.client.GetEpochNumber(types.EpochLatestState)
-	util.OsExitIfErr(err, "Failed to get epoch")
-	env.epochHeight = epoch.ToInt().Uint64()
-}
-
 func formatReceiverNumber(sentWeightInStr string) {
 	var err error
 	weight, err = decimal.NewFromString(sentWeightInStr)
@@ -702,65 +655,6 @@ func formatReceiverNumber(sentWeightInStr string) {
 // SetParent sets parent command
 func SetParent(parent *cobra.Command) {
 	parent.AddCommand(rootCmd)
-}
-
-func mustParseReceivers() []Receiver {
-	// read csv file
-	content, err := ioutil.ReadFile(receiverListFile)
-	util.OsExitIfErr(err, "Failed to read file %v", receiverListFile)
-
-	// parse to struct
-	lines := strings.Split(string(content), "\n")
-	receiverInfos := []Receiver{}
-
-	invalids := []string{}
-
-	for i, v := range lines {
-		v = strings.Replace(v, "\t", " ", -1)
-		v = strings.Replace(v, ",", " ", -1)
-		items := strings.Fields(v)
-		if len(v) == 0 {
-			continue
-		}
-
-		if len(items) != 2 {
-			util.OsExit("Line %v: %#v column number is %v, which shoule be 2\n", i, v, len(items))
-		}
-
-		isDecimal, err := regexp.Match(`^\d+\.?\d*$`, []byte(items[1]))
-		util.OsExitIfErr(err, "Failed to regex check %v ", items[1])
-		if !isDecimal {
-			invalids = append(invalids, fmt.Sprintf("Line %v: Number %v is unsupported, only supports pure number format, scientific notation like 1e18 and other representation format are unspported", i+1, items[1]))
-			continue
-		}
-
-		amountInCfx, err := decimal.NewFromString(items[1])
-		if err != nil {
-			invalids = append(invalids, fmt.Sprintf("Line %v: Failed to parse %v to int, errmsg:%v", i+1, items[1], err.Error()))
-			continue
-		}
-
-		_, err = cfxaddress.New(items[0])
-		if err != nil {
-			invalids = append(invalids, fmt.Sprintf("Line %v: Failed to create cfx address by %v, Errmsg: %v", i+1, items[0], err.Error()))
-			continue
-		}
-
-		info := Receiver{
-			Address:     items[0],
-			AmountInCfx: amountInCfx,
-		}
-
-		receiverInfos = append(receiverInfos, info)
-	}
-
-	if len(invalids) > 0 {
-		errMsg := fmt.Sprintf("Invalid Recevier info exists:\n%v", strings.Join(invalids, "\n"))
-		util.OsExit(errMsg)
-	}
-
-	fmt.Printf("Receiver list count :%+v\n", len(receiverInfos))
-	return receiverInfos
 }
 
 func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address, tokenSymbol string) {
@@ -777,30 +671,34 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		storageNeed *big.Int = big.NewInt(0)
 	)
 
-	_balance, err := client.GetBalance(from)
+	_balance, err := client.GetBalance(*env.GetFromAddressOfSpace())
 	cfxBalance = _balance.ToInt()
-	util.OsExitIfErr(err, "Failed to get CFX balance of %v", from)
+	util.OsExitIfErr(err, "Failed to get CFX balance of %v", env.AddrDisplay(&from))
 
 	if token != nil {
 		contract := common.MustGetCTokenContract(token.String())
 		err := contract.Call(nil, &tokenBalance, "balanceOf", from.MustGetCommonAddress())
-		util.OsExitIfErr(err, "Failed to get token %v balance of %v", tokenSymbol, from)
+		util.OsExitIfErr(err, "Failed to get token %v balance of %v", tokenSymbol, env.AddrDisplay(&from))
 
 		_price := (*hexutil.Big)(account.MustParsePrice())
 		em := estimateGasAndCollateral(token)
-		aginstResp, err := client.CheckBalanceAgainstTransaction(from, *token, em.GasLimit, _price, em.StorageCollateralized)
-		util.OsExitIfErr(err, "Failed to check balance against tx")
 
-		logrus.Debugf("CheckBalanceAgainstTransaction from %v gaslimit %v gasprice %v storage collateral %v : %+v", from, em.GasLimit, _price, em.StorageCollateralized, aginstResp)
+		perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
+		if env.space == types.SPACE_NATIVE {
+			aginstResp, err := client.CheckBalanceAgainstTransaction(from, *token, em.GasLimit, _price, em.StorageCollateralized)
+			util.OsExitIfErr(err, "Failed to check balance against tx")
 
-		// needPayGas = aginstResp.WillPayTxFee
-		// needPayStorage = aginstResp.WillPayCollateral
-		if aginstResp.WillPayTxFee {
-			perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
-		}
-		if aginstResp.WillPayCollateral {
-			perUintNeed := new(big.Int).Div(big.NewInt(1e18), big.NewInt(1024))
-			perTxStorageNeed = new(big.Int).Mul(perUintNeed, em.StorageCollateralized.ToInt())
+			logrus.Debugf("CheckBalanceAgainstTransaction from %v gaslimit %v gasprice %v storage collateral %v : %+v", env.AddrDisplay(&from), em.GasLimit, _price, em.StorageCollateralized, aginstResp)
+
+			// needPayGas = aginstResp.WillPayTxFee
+			// needPayStorage = aginstResp.WillPayCollateral
+			if aginstResp.WillPayTxFee {
+				perTxGasNeed = new(big.Int).Mul(account.MustParsePrice(), em.GasLimit.ToInt())
+			}
+			if aginstResp.WillPayCollateral {
+				perUintNeed := new(big.Int).Div(big.NewInt(1e18), big.NewInt(1024))
+				perTxStorageNeed = new(big.Int).Mul(perUintNeed, em.StorageCollateralized.ToInt())
+			}
 		}
 	}
 
@@ -822,16 +720,16 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		if cfxBalance.Cmp(cfxNeed) < 0 {
 			// clearCacheFile()
 			msg := fmt.Sprintf("Balance of %v is not enough,  need %v, has %v",
-				from, util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance))
+				env.AddrDisplay(&from), util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance))
 			util.OsExit(msg)
 		}
 	} else {
 		cfxNeed := big.NewInt(0).Add(gasNeed, storageNeed)
 		if cfxBalance.Cmp(cfxNeed) < 0 || tokenBalance.Cmp(receiveNeed) < 0 {
 			// clearCacheFile()
-			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas,"+
+			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas, "+
 				"%v need %v, has %v, CFX need %v, has %v",
-				tokenSymbol, from,
+				tokenSymbol, env.AddrDisplay(&from),
 				tokenSymbol, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(tokenBalance, tokenSymbol),
 				util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance),
 			)
@@ -843,24 +741,21 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		tokenBalance = cfxBalance
 	}
 
-	fmt.Printf("Balance of %v is enough, %v need %v, fee need %v; token has %v, cfx has %v\n", from, tokenSymbol,
+	fmt.Printf("Balance of %v is enough, %v need %v, fee need %v; token has %v, cfx has %v\n", env.AddrDisplay(&from), tokenSymbol,
 		util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(new(big.Int).Add(gasNeed, storageNeed)),
 		util.DisplayValueWithUnit(tokenBalance, tokenSymbol), util.DisplayValueWithUnit(cfxBalance))
 }
 
 func exitIfHasPendingTxs() {
 	// exit if has pending tx
-	pending, e := env.client.GetAccountPendingInfo(env.from)
-	util.OsExitIfErr(e, "Failed to get account pending info")
-	if pending.PendingCount.ToInt().Sign() == 1 {
-		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", env.from)
-		os.Exit(0)
-	}
-}
+	from := env.GetFromAddressOfSpace()
+	nonce, err := env.client.GetNextNonce(*from)
+	util.OsExitIfErr(err, "Failed to get account next nonce")
 
-func setMode() {
-	levelStr := os.Getenv("MODE")
-	if levelStr == "DEBUG" || levelStr == "debug" {
-		env.isDebugMode = true
+	pendingNonce, err := env.client.TxPool().NextNonce(*from)
+	util.OsExitIfErr(err, "Failed to get account pending nonce")
+	if nonce.ToInt().Cmp(pendingNonce.ToInt()) < 0 {
+		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", env.AddrDisplay(from))
+		os.Exit(0)
 	}
 }

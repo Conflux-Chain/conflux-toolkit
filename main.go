@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var rootCmd = util.CreateUsageCommand("conflux-toolkit", "Conflux toolkit")
+var rootCmd = util.CreateUsageCommand("conflux-toolkit", "Conflux toolkit", "v1.0.0")
 
 func init() {
 	setLogLevel()

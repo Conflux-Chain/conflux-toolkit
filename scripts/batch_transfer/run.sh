@@ -3,6 +3,9 @@ cd $(dirname $0)
 echo "- 当前工作目录: $(pwd)"
 # rm -rf ./keystore
 
+SET_GASPRICE=false
+
+
 echo "\n******************* 检查空投列表 *******************"
 # check if airdrop list empty
 if [ -s 1_填写空投列表.csv ]; then
@@ -84,26 +87,28 @@ done
 # address="NET${address#*NET}"
 echo "- 将使用该地址空投：${address}"
 
-# select network type, mainnet or testnet?
-echo "\n******************* 选择网络类型 *******************"
-echo "- 请手动输入您要空投到的网络类型：测试网输入test, tethys主网输入tethys"
+# select space type, core space or espace?
+echo "\n******************* 选择 Space *******************"
+echo "- 请手动输入您要空投到的Space：Core Space输入core, eSpace主网输入espace"
 
 while
     true
     read -r -p "" input
 do
     case $input in
-    "test")
-        echo "- 您选择的是测试网"
+    "core")
+        echo "- 您选择的是Core Space"
         # url="ws://test.confluxrpc.com"
-        url="https://test.confluxrpc.com"
+        space="core"
+        gasPrice=1000000000
         break
         ;;
 
-    "tethys")
-        echo "- 您选择的是Tethys主网"
+    "espace")
+        echo "- 您选择的是eSpace"
         # url="ws://main.confluxrpc.com/ws"
-        url="https://main.confluxrpc.com"
+        space="espace"
+        gasPrice=5000000000
         # url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
         break
         ;;
@@ -114,22 +119,47 @@ do
     esac
 done
 
-echo "\n******************* 选择gasPrice *******************"
-echo "- 默认 gasPrice 为 1000K drip，当网络拥堵时调高 gasPrice 可以加快打包速度；输入 \"N\" 跳过设置，输入 \"Y\" 提高gasPrice至 1G drip "
+# select network type, mainnet or testnet?
+echo "\n******************* 选择网络类型 *******************"
+echo "- 请手动输入您要空投到的网络类型：测试网输入test, 主网输入main"
+
 while
     true
     read -r -p "" input
 do
     case $input in
-    "N")
-        echo "- 您选择使用 1000K drip gasPrice"
-        gasPrice=1000000
+    "test")
+        echo "- 您选择的是测试网"
+        # url="ws://test.confluxrpc.com"
+        case ${space} in
+        "core")
+            url="https://test.confluxrpc.com"
+            break
+            ;;
+        "espace")
+            url="https://evmtestnet.confluxscan.net/rpcv2"
+            break
+            ;;
+        esac
         break
         ;;
 
-    "Y")
-        echo "- 您选择使用 1G drip gasPrice"
-        gasPrice=1000000000
+    "main")
+        echo "- 您选择的是主网"
+        # # url="ws://main.confluxrpc.com/ws"
+        # url="https://main.confluxrpc.com"
+        # # url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
+
+        case ${space} in
+        "core")
+            url="https://main.confluxrpc.com"
+            break
+            ;;
+        "espace")
+            url="https://evm.confluxscan.net/rpcv2"
+            break
+            ;;
+        esac
         break
         ;;
 
@@ -138,6 +168,34 @@ do
         ;;
     esac
 done
+
+if [ $SET_GASPRICE == 'true' ]; 
+then
+    echo "\n******************* 选择gasPrice *******************"
+    echo "- 默认 core space gasPrice 为 1G drip，espace gasPrice 为5G drip, 当网络拥堵时调高 gasPrice 可以加快打包速度；输入 \"N\" 跳过设置，输入 \"Y\" 提高gasPrice至2倍 "
+    while
+        true
+        read -r -p "" input
+    do
+        case $input in
+        "N")
+            echo "- 您选择使用 1倍 gasPrice"
+            break
+            ;;
+
+        "Y")
+            echo "- 您选择使用 2倍 gasPrice"
+            gasPrice=$((gasPrice * 2))
+            break
+            ;;
+
+        *)
+            echo "输入无效，请重新输入"
+            ;;
+        esac
+    done
+fi
+    
 
 echo "\n******************* 选择每批次发送交易数量 *******************"
 echo "- 默认每次发送10笔交易，输入 \"N\" 跳过设置；输入 \"Y\" 降低至每次发送1笔交易 "
