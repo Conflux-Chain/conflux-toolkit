@@ -559,8 +559,9 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	if env.isDebugMode {
 		return "", nil
 	}
+	fmt.Println("start select token")
 
-	url := env.GetTokenListUrl()
+	url := env.GetTokenListUrl() + env.GetFromAddressOfSpace().String()
 	req, _ := http.NewRequest("GET", url, nil)
 
 	res, err := http.DefaultClient.Do(req)
@@ -570,32 +571,49 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	body, err := ioutil.ReadAll(res.Body)
 	util.OsExitIfErr(err, "Failed to read token list from %v", res.Body)
 
-	tokenList := struct {
+	type Token struct {
 		Total int `json:"total"`
 		List  []struct {
-			Address types.Address `json:"address"`
-			Symbol  string        `json:"symbol"`
+			Address string `json:"contract"`
+			Symbol  string `json:"symbol"`
 		} `json:"list"`
+	}
+	bodyInStrcut := struct {
+		Data   Token `json:"data"`
+		Result Token `json:"result"`
 	}{}
-	json.Unmarshal([]byte(body), &tokenList)
+
+	err = json.Unmarshal(body, &bodyInStrcut)
+	util.OsExitIfErr(err, "Failed to unmarshal token list %s", body)
+
+	if len(bodyInStrcut.Result.List) > len(bodyInStrcut.Data.List) {
+		bodyInStrcut.Data = bodyInStrcut.Result
+	}
+
+	if len(bodyInStrcut.Data.List) == 0 {
+		fmt.Printf("\nWarning: get token list empty, check if response struct changed\nRequest %s\nResponse body %s\n", url, body)
+	}
 
 	// print token list for user select
 	fmt.Println("\nThese are the token list you could batch transfer:")
 	fmt.Printf("%v. Token: %v\n", 1, "CFX")
-	for i := range tokenList.List {
-		fmt.Printf("%v. Token: %v, Contract Address: %v\n", i+2, tokenList.List[i].Symbol, env.AddrDisplay(&tokenList.List[i].Address))
+
+	tokenList := bodyInStrcut.Data.List
+	for i := range bodyInStrcut.Data.List {
+		fmt.Printf("%v. Token: %v, Contract Address: %v\n", i+2, tokenList[i].Symbol, tokenList[i].Address)
 	}
 
-	selectedIdx := getSelectedIndex(len(tokenList.List) + 2)
+	selectedIdx := getSelectedIndex(len(tokenList) + 2)
 	if selectedIdx == 1 {
 		symbol = "CFX"
 		return
 	}
-	token := tokenList.List[selectedIdx-2]
+	token := tokenList[selectedIdx-2]
 	// if token.Symbol != "FC" && token.Symbol[0:1] != "c" {
 	// 	util.OsExit("Not support %v currently, please select token FC or starts with 'c', such as cUsdt, cMoon and so on.", token.Symbol)
 	// }
-	return token.Symbol, &token.Address
+	tokenAddr := cfxaddress.MustNew(token.Address, env.networkID)
+	return token.Symbol, &tokenAddr
 }
 
 func askIfContinueUncompletedTxs(receivers []Receiver) bool {

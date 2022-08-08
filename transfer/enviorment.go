@@ -45,7 +45,7 @@ func NewEnviorment() *Enviorment {
 	env.ethKeystore = keystore.NewKeyStore("keystore", keystore.StandardScryptN, keystore.StandardScryptP)
 	env.setByProcessEnv()
 
-	env.client = rpc.MustCreateClientWithRetry(100)
+	env.client = rpc.MustCreateClientWithRetry(3)
 	env.client.SetAccountManager(env.am)
 
 	if env.logLevel >= logrus.DebugLevel {
@@ -119,13 +119,13 @@ func (env *Enviorment) GetFromAddressOfSpace() *cfxaddress.Address {
 func (env *Enviorment) GetTokenListUrl() string {
 	switch env.networkID {
 	case util.MAINNET:
-		return "https://confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+		return "https://api.confluxscan.net/account/tokens?account="
 	case util.TESTNET:
-		return "https://testnet.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+		return "https://api-testnet.confluxscan.net/account/tokens?account="
 	case util.ESPACE_MAINNET:
-		return "https://evm.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+		return "https://evmapi.confluxscan.net/account/tokens?account="
 	case util.ESPACE_TESTNET:
-		return "https://evmtestnet.confluxscan.io/v1/token?orderBy=transferCount&reverse=true&skip=0&limit=100&fields=price"
+		return "https://evmapi-testnet.confluxscan.net/account/tokens?account="
 	}
 	panic("unknown network")
 }
