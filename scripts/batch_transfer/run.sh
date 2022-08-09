@@ -137,7 +137,7 @@ do
             break
             ;;
         "espace")
-            url="https://evmtestnet.confluxscan.net/rpcv2"
+            url="https://evmtestnet.confluxrpc.com/cfxbridge"
             break
             ;;
         esac
@@ -156,7 +156,7 @@ do
             break
             ;;
         "espace")
-            url="https://evm.confluxscan.net/rpcv2"
+            url="https://evm.confluxrpc.com/cfxbridge"
             break
             ;;
         esac
