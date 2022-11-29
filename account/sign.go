@@ -7,6 +7,7 @@ import (
 	"github.com/Conflux-Chain/go-conflux-sdk/types"
 	"github.com/Conflux-Chain/go-conflux-sdk/types/cfxaddress"
 	"github.com/Conflux-Chain/go-conflux-sdk/utils"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +19,7 @@ var (
 	epoch        uint64
 	chain        uint
 	data         string
+	space        string
 )
 
 func init() {
@@ -28,6 +30,8 @@ func init() {
 	}
 
 	AddFromVar(signCmd)
+
+	signCmd.PersistentFlags().StringVar(&space, "space", "c", "'c' represents core space and 'e' represents espace")
 
 	signCmd.PersistentFlags().Uint32Var(&nonce, "nonce", 0, "Transaction nonce")
 	signCmd.MarkPersistentFlagRequired("nonce")
@@ -81,10 +85,27 @@ func sign(cmd *cobra.Command, args []string) {
 
 	password := MustInputPassword("Enter password: ")
 
-	encoded, err := am.SignAndEcodeTransactionWithPassphrase(tx, password)
-	if err != nil {
-		fmt.Println("Failed to sign transaction:", err.Error())
-		return
+	var encoded []byte
+	switch space {
+	case "e":
+		ethTx, from, chainID := CfxToEthTx(&tx)
+		signedTx := SignEthLegacyTxWithPasswd(ethKeystore, from, ethTx, chainID, password)
+		v, err := rlp.EncodeToBytes(signedTx)
+		if err != nil {
+			fmt.Println("Failed to sign espace transaction:", err.Error())
+			return
+		}
+		// var result interface{}
+		// rlp.DecodeBytes(v, &result)
+		// fmt.Printf("decoded: %v\n", result)
+		encoded = v
+	default:
+		v, err := am.SignAndEcodeTransactionWithPassphrase(tx, password)
+		if err != nil {
+			fmt.Println("Failed to sign core space transaction:", err.Error())
+			return
+		}
+		encoded = v
 	}
 
 	fmt.Println("=======================================")

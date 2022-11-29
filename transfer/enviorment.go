@@ -62,7 +62,7 @@ func NewEnviorment() *Enviorment {
 
 	env.pState = loadProcessState()
 	env.from = cfxaddress.MustNew(account.MustParseAccount().GetHexAddress(), env.networkID)
-	env.fromEspace = mustGetAccount(env.ethKeystore, env.from.MustGetCommonAddress()).Address
+	env.fromEspace = account.MustGetAccount(env.ethKeystore, env.from.MustGetCommonAddress()).Address
 	// env.pState.refreshSpaceAndSave(types.SpaceType(space))
 	env.pState.refreshSenderAndSave(&env.from)
 
@@ -70,7 +70,7 @@ func NewEnviorment() *Enviorment {
 	err = env.am.Unlock(env.from, password)
 	util.OsExitIfErr(err, "Failed to unlock account")
 
-	ethAcc := mustGetAccount(env.ethKeystore, env.from.MustGetCommonAddress())
+	ethAcc := account.MustGetAccount(env.ethKeystore, env.from.MustGetCommonAddress())
 	err = env.ethKeystore.Unlock(ethAcc, password)
 	util.OsExitIfErr(err, "Failed to unlock account")
 
@@ -135,8 +135,8 @@ func (env *Enviorment) SignTx(tx *types.UnsignedTransaction) ([]byte, error) {
 	case types.SPACE_NATIVE:
 		return env.am.SignTransaction(*tx)
 	case types.SPACE_EVM:
-		eTx, addr, chainID := cfxToEthTx(tx)
-		eTx = signEthLegacyTx(env.ethKeystore, addr, eTx, chainID)
+		eTx, addr, chainID := account.CfxToEthTx(tx)
+		eTx = account.SignEthLegacyTx(env.ethKeystore, addr, eTx, chainID)
 		return rlp.EncodeToBytes(eTx)
 	}
 	return nil, errors.New("unkown space")
@@ -153,7 +153,7 @@ func (env *Enviorment) DecodeTx(rawTxBytes []byte) *types.UnsignedTransaction {
 		etx := ethtypes.Transaction{}
 		err := rlp.DecodeBytes(rawTxBytes, &etx)
 		util.OsExitIfErr(err, "Failed to decode signed tx %v to eth tx", rawTxBytes)
-		return ethToCfxTx(&etx, env.chainID)
+		return account.EthToCfxTx(&etx, env.chainID)
 	}
 	panic("unknown space")
 }
