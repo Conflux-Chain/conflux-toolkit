@@ -27,5 +27,19 @@ func TestSignH(t *testing.T) {
 	h := common.Hash{}
 	prv, _ := crypto.HexToECDSA("9ec393923a14eeb557600010ea05d635c667a6995418f8a8f4bdecc63dfe0bb9")
 	sig, _ := crypto.Sign(h[:], prv)
-	fmt.Printf("sig %x\n", sig)
+	addr := crypto.PubkeyToAddress(prv.PublicKey)
+	fmt.Printf("addr %v sig %x\n", addr, sig)
+
+	r, s, v := sig[0:32], sig[32:64], sig[64]
+	fmt.Printf("r %x s %x v %x\n", r, s, v)
+
+	var rAddr common.Address
+	pub, err := crypto.Ecrecover(h[:], sig)
+	assert.NoError(t, err)
+	copy(rAddr[:], crypto.Keccak256(pub[1:])[12:])
+	fmt.Printf("recovered addr %v\n", rAddr)
+}
+
+func TestTxHash(t *testing.T) {
+	
 }

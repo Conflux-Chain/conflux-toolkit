@@ -108,7 +108,7 @@ do
         echo "- 您选择的是eSpace"
         # url="ws://main.confluxrpc.com/ws"
         space="espace"
-        gasPrice=5000000000
+        gasPrice=20000000000
         # url="ws://mainnet-rpc.conflux-chain.org.cn/ws/v2"
         break
         ;;
@@ -172,7 +172,7 @@ done
 if [ $SET_GASPRICE == 'true' ]; 
 then
     echo "\n******************* 选择gasPrice *******************"
-    echo "- 默认 core space gasPrice 为 1G drip，espace gasPrice 为5G drip, 当网络拥堵时调高 gasPrice 可以加快打包速度；输入 \"N\" 跳过设置，输入 \"Y\" 提高gasPrice至2倍 "
+    echo "- 默认 core space gasPrice 为 1G drip，espace gasPrice 为20G drip, 当网络拥堵时调高 gasPrice 可以加快打包速度；输入 \"N\" 跳过设置，输入 \"Y\" 提高gasPrice至2倍 "
     while
         true
         read -r -p "" input

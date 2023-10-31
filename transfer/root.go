@@ -72,7 +72,7 @@ func init() {
 }
 
 func doTransfers(cmd *cobra.Command, args []string) {
-	fmt.Println("Initial enviorment")
+	fmt.Println("===== Initial enviorment =====")
 	env = *NewEnviorment()
 	env.pState.refreshChainIdAndSave(env.chainID)
 
@@ -83,7 +83,14 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 	// list cfx and ctoken for user select
 	tokenSymbol, tokenAddress := selectToken()
-	fmt.Printf("Selected token: %v, contract address: %v\n", tokenSymbol, env.AddrDisplay(tokenAddress))
+	fmt.Printf("- You selected token: %v, contract address: %v\n", tokenSymbol, env.AddrDisplay(tokenAddress))
+
+	// ensure sending amount and length by user
+	isConfired := confirmSendingByUser(receiverInfos)
+	if !isConfired {
+		fmt.Println("⭕ You refused to send")
+		return
+	}
 
 	// transfer
 	fmt.Println("===== Start batch transfer =====")
@@ -100,7 +107,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 
 	logrus.Debugf("a receiverInfos len:%v\n", len(receiverInfos))
 	if len(env.pState.SendingBatchElems) > 0 {
-		fmt.Printf("==== There are uncompleted tx in last time, start send one batch from %v and length %v ===\n",
+		fmt.Printf("- There are uncompleted tx in last time, start send one batch from %v and length %v ===\n",
 			env.pState.SendingStartIdx, len(env.pState.SendingBatchElems))
 
 		sentNum := sendOneBatch(env.pState.SendingBatchElems, &batchSummary)
@@ -127,7 +134,7 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Printf("\n===== All transfer done =====\n")
-	fmt.Printf("Summares:\n%v\n", &batchSummary)
+	fmt.Printf("Summaries:\n%v\n", &batchSummary)
 	fmt.Printf("===== Complete! =====\n")
 }
 
@@ -139,7 +146,7 @@ func sendOneBatch(elems []clientRpc.BatchElem, summay *BatchSummary) int {
 
 	fmt.Printf("===== Batch sent and executed %v tx done, failed %v =====\n", oneBatchSummary.total, oneBatchSummary.GetTotalFailCount())
 	if len(oneBatchSummary.failInfos) > 0 {
-		fmt.Printf("Fails details:\n%+v\n", strings.Join(oneBatchSummary.failInfos, "\n"))
+		fmt.Printf("⭕ Fails details:\n%+v\n", strings.Join(oneBatchSummary.failInfos, "\n"))
 	}
 	return len(elems)
 }
@@ -193,7 +200,7 @@ func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Ad
 
 func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 	err := env.client.ApplyUnsignedTransactionDefault(tx)
-	util.OsExitIfErr(err, "Failed apply unsigned tx %+v", tx)
+	util.OsExitIfErr(err, "⭕ Failed apply unsigned tx %+v", tx)
 	tx.From = env.GetFromAddressOfSpace()
 
 	logrus.Debugf("sign tx: %+v", tx)
@@ -201,7 +208,7 @@ func createBatchElemItem(tx *types.UnsignedTransaction) clientRpc.BatchElem {
 	// sign
 	// encoded, err := env.am.SignTransaction(*tx)
 	encoded, err := env.SignTx(tx)
-	util.OsExitIfErr(err, "Failed to sign transaction %+v", tx)
+	util.OsExitIfErr(err, "⭕ Failed to sign transaction %+v", tx)
 
 	// fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
 	// 	startCnt+i, tokenSymbol, cfxaddress.MustNew(v.Address, env.networkID),
@@ -246,7 +253,7 @@ func batchSend(rpcBatchElems []clientRpc.BatchElem, needSends []bool) {
 	for i, v := range needSendIdxs {
 		rpcBatchElems[v] = needSendElems[i]
 	}
-	fmt.Println("\n== Received tx hash list")
+	fmt.Println("\n🍀 Received tx hash list")
 
 	env.pState.setSendingsAndSave(env.pState.SendingStartIdx, rpcBatchElems)
 
@@ -493,7 +500,7 @@ func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) (timeout bool) {
 	// TODO: impossible occur now;
 	// all are error, return
 	if lastHash == nil {
-		fmt.Println("Failed to send all of this batch of transactions")
+		fmt.Println("⭕ Failed to send all of this batch of transactions")
 		return
 	}
 
@@ -546,7 +553,7 @@ func getTransferData(contractAddress types.Address, reciever types.Address, amou
 	ctoken := common.MustGetCTokenContract(contractAddress.String())
 	// data, err := ctoken.GetData("send", reciever.MustGetCommonAddress(), amountInDrip, []byte{})
 	data, err := ctoken.GetData("transfer", reciever.MustGetCommonAddress(), amountInDrip)
-	util.OsExitIfErr(err, "Failed to get data of transfer ctoken %v to %v amount %v", env.AddrDisplay(&contractAddress), env.AddrDisplay(&reciever), amountInDrip)
+	util.OsExitIfErr(err, "⭕ Failed to get data of transfer ctoken %v to %v amount %v", env.AddrDisplay(&contractAddress), env.AddrDisplay(&reciever), amountInDrip)
 	return data
 }
 
@@ -559,7 +566,7 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	if env.isDebugMode {
 		return "", nil
 	}
-	fmt.Println("start select token")
+	fmt.Println("\n===== Start select token =====")
 
 	url := env.GetTokenListUrl() + env.GetFromAddressOfSpace().String()
 	req, _ := http.NewRequest("GET", url, nil)
@@ -591,11 +598,11 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	}
 
 	if len(bodyInStrcut.Data.List) == 0 {
-		fmt.Printf("\nWarning: get token list empty, check if response struct changed\nRequest %s\nResponse body %s\n", url, body)
+		fmt.Printf("\n- Warning: get token list empty, check if response struct changed\nRequest %s\nResponse body %s\n", url, body)
 	}
 
 	// print token list for user select
-	fmt.Println("\nThese are the token list you could batch transfer:")
+	fmt.Println("🍀 These are the token list you could batch transfer:")
 	fmt.Printf("%v. Token: %v\n", 1, "CFX")
 
 	tokenList := bodyInStrcut.Data.List
@@ -603,7 +610,7 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 		fmt.Printf("%v. Token: %v, Contract Address: %v\n", i+2, tokenList[i].Symbol, tokenList[i].Address)
 	}
 
-	selectedIdx := getSelectedIndex(len(tokenList) + 2)
+	selectedIdx := getSelectedIndex(len(tokenList) + 1)
 	if selectedIdx == 1 {
 		symbol = "CFX"
 		return
@@ -630,7 +637,7 @@ func askIfContinueUncompletedTxs(receivers []Receiver) bool {
 		return false
 	}
 
-	fmt.Printf("There are still %v transactions that were not completed sent last time, you can check detail in transfer_result.json file, 'Y' to continue to sent uncompleted transactions, 'N' to start send form begin\n", uncompletedTxCount)
+	fmt.Printf("- There are still %v transactions that were not completed sent last time, you can check detail in transfer_result.json file, 'Y' to continue to sent uncompleted transactions, 'N' to start send form begin\n", uncompletedTxCount)
 	var isContinue string
 	for {
 		fmt.Scanln(&isContinue)
@@ -640,26 +647,46 @@ func askIfContinueUncompletedTxs(receivers []Receiver) bool {
 		if isContinue == "N" || isContinue == "n" {
 			return false
 		}
-		fmt.Printf("Input must be 'Y' or 'N', please input again\n")
+		fmt.Printf("- Input must be 'Y' or 'N', please input again\n")
+	}
+}
+
+func confirmSendingByUser(receivers []Receiver) bool {
+	length := len(receivers)
+	sumAmount := decimal.Zero
+	for _, r := range receivers {
+		sumAmount = r.AmountInCfx.Add(sumAmount)
+	}
+	fmt.Printf("⚠️  Please confirm the sending data: receiver number %d, sending amount %v; press Y to confirm, N to refuse\n", length, sumAmount)
+	for {
+		yes := "N"
+		fmt.Scanln(&yes)
+		if strings.ToUpper(yes) == "Y" {
+			return true
+		}
+		if strings.ToUpper(yes) == "N" {
+			return false
+		}
+		fmt.Printf("Invalid input, please input 'Y' to confirm or 'N' to refuse\n")
 	}
 }
 
 func getSelectedIndex(tokensCount int) int {
 	// for loop until selected one
-	fmt.Println("Please input the index you will transfer")
+	fmt.Println("- Please input the index you will transfer")
 	selectedIdx := 0
 	for {
 		fmt.Scanln(&selectedIdx)
-		if selectedIdx > 0 || selectedIdx <= tokensCount {
-			fmt.Printf("You selected %v, press Y to continue, N to select again\n", selectedIdx)
+		if selectedIdx > 0 && selectedIdx <= tokensCount {
+			fmt.Printf("- You selected %v, press Y to continue, N to select again\n", selectedIdx)
 			yes := "N"
 			fmt.Scanln(&yes)
 			if strings.ToUpper(yes) == "Y" {
 				break
 			}
-			fmt.Printf("Please select again\n")
+			fmt.Printf("⭕ Please select again\n")
 		}
-		fmt.Printf("Input must be in range %v to %v, please input again\n", 1, tokensCount)
+		fmt.Printf("⭕ Input must be in range %v to %v, please input again\n", 1, tokensCount)
 	}
 	return selectedIdx
 }
@@ -691,12 +718,12 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 
 	_balance, err := client.GetBalance(*env.GetFromAddressOfSpace())
 	cfxBalance = _balance.ToInt()
-	util.OsExitIfErr(err, "Failed to get CFX balance of %v", env.AddrDisplay(&from))
+	util.OsExitIfErr(err, "⭕ Failed to get CFX balance of %v", env.AddrDisplay(&from))
 
 	if token != nil {
 		contract := common.MustGetCTokenContract(token.String())
 		err := contract.Call(nil, &tokenBalance, "balanceOf", from.MustGetCommonAddress())
-		util.OsExitIfErr(err, "Failed to get token %v balance of %v", tokenSymbol, env.AddrDisplay(&from))
+		util.OsExitIfErr(err, "⭕ Failed to get token %v balance of %v", tokenSymbol, env.AddrDisplay(&from))
 
 		_price := (*hexutil.Big)(account.MustParsePrice())
 		em := estimateGasAndCollateral(token)
@@ -737,7 +764,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		cfxNeed = big.NewInt(0).Add(cfxNeed, storageNeed)
 		if cfxBalance.Cmp(cfxNeed) < 0 {
 			// clearCacheFile()
-			msg := fmt.Sprintf("Balance of %v is not enough,  need %v, has %v",
+			msg := fmt.Sprintf("⭕ Balance of %v is not enough,  need %v, has %v",
 				env.AddrDisplay(&from), util.DisplayValueWithUnit(cfxNeed), util.DisplayValueWithUnit(cfxBalance))
 			util.OsExit(msg)
 		}
@@ -745,7 +772,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 		cfxNeed := big.NewInt(0).Add(gasNeed, storageNeed)
 		if cfxBalance.Cmp(cfxNeed) < 0 || tokenBalance.Cmp(receiveNeed) < 0 {
 			// clearCacheFile()
-			msg := fmt.Sprintf("Token %v balance of %v is not enough or CFX balance not enough to pay gas, "+
+			msg := fmt.Sprintf("⭕ Token %v balance of %v is not enough or CFX balance not enough to pay gas, "+
 				"%v need %v, has %v, CFX need %v, has %v",
 				tokenSymbol, env.AddrDisplay(&from),
 				tokenSymbol, util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(tokenBalance, tokenSymbol),
@@ -768,10 +795,10 @@ func exitIfHasPendingTxs() {
 	// exit if has pending tx
 	from := env.GetFromAddressOfSpace()
 	nonce, err := env.client.GetNextNonce(*from)
-	util.OsExitIfErr(err, "Failed to get account next nonce")
+	util.OsExitIfErr(err, "⭕ Failed to get account next nonce")
 
 	pendingNonce, err := env.client.TxPool().NextNonce(*from)
-	util.OsExitIfErr(err, "Failed to get account pending nonce")
+	util.OsExitIfErr(err, "⭕ Failed to get account pending nonce")
 	if nonce.ToInt().Cmp(pendingNonce.ToInt()) < 0 {
 		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", env.AddrDisplay(from))
 		os.Exit(0)
