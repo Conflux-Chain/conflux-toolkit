@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math"
 	"math/big"
 	"net/http"
@@ -562,6 +562,19 @@ func calcValue(numberPerTime decimal.Decimal, weigh decimal.Decimal) *big.Int {
 }
 
 // ================= user interact ========================
+
+type TokenList struct {
+	List []struct {
+		Address string `json:"contract"`
+		Symbol  string `json:"symbol"`
+	} `json:"list"`
+}
+type TokensResp struct {
+	// Total int `json:"total"`
+	Data   TokenList `json:"data"`
+	Result TokenList `json:"result"`
+}
+
 func selectToken() (symbol string, contractAddress *types.Address) {
 	if env.isDebugMode {
 		return "", nil
@@ -575,50 +588,42 @@ func selectToken() (symbol string, contractAddress *types.Address) {
 	util.OsExitIfErr(err, "Failed to get response by url %v", url)
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	util.OsExitIfErr(err, "Failed to read token list from %v", res.Body)
 
-	type Token struct {
-		Total int `json:"total"`
-		List  []struct {
-			Address string `json:"contract"`
-			Symbol  string `json:"symbol"`
-		} `json:"list"`
-	}
-	bodyInStrcut := struct {
-		Data   Token `json:"data"`
-		Result Token `json:"result"`
-	}{}
-
-	err = json.Unmarshal(body, &bodyInStrcut)
+	var tokenResp TokensResp
+	err = json.Unmarshal(body, &tokenResp)
 	util.OsExitIfErr(err, "Failed to unmarshal token list %s", body)
 
-	if len(bodyInStrcut.Result.List) > len(bodyInStrcut.Data.List) {
-		bodyInStrcut.Data = bodyInStrcut.Result
+	if len(tokenResp.Data.List) == 0 && len(tokenResp.Result.List) == 0 {
+		fmt.Printf("\n- Warning: get token list empty, check if response struct changed\nRequest %s\nResponse body %s\n\n", url, body)
 	}
 
-	if len(bodyInStrcut.Data.List) == 0 {
-		fmt.Printf("\n- Warning: get token list empty, check if response struct changed\nRequest %s\nResponse body %s\n", url, body)
+	tokenList := tokenResp.Data.List
+	if len(tokenResp.Result.List) > len(tokenResp.Data.List) {
+		tokenList = tokenResp.Result.List
 	}
 
-	// print token list for user select
+	if len(tokenList) == 0 {
+		fmt.Println("⭕ You have no tokens, please deposit tokens you want transfer and retry")
+		os.Exit(0)
+	}
+
 	fmt.Println("🍀 These are the token list you could batch transfer:")
-	fmt.Printf("%v. Token: %v\n", 1, "CFX")
-
-	tokenList := bodyInStrcut.Data.List
-	for i := range bodyInStrcut.Data.List {
-		fmt.Printf("%v. Token: %v, Contract Address: %v\n", i+2, tokenList[i].Symbol, tokenList[i].Address)
+	for i, v := range tokenList {
+		if v.Address == "" {
+			fmt.Printf("%v. Token: %v\n", i+1, tokenList[i].Symbol)
+		} else {
+			fmt.Printf("%v. Token: %v, Contract Address: %v\n", i+1, tokenList[i].Symbol, tokenList[i].Address)
+		}
 	}
 
 	selectedIdx := getSelectedIndex(len(tokenList) + 1)
-	if selectedIdx == 1 {
-		symbol = "CFX"
-		return
+	token := tokenList[selectedIdx-1]
+	if token.Address == "" {
+		return token.Symbol, nil
 	}
-	token := tokenList[selectedIdx-2]
-	// if token.Symbol != "FC" && token.Symbol[0:1] != "c" {
-	// 	util.OsExit("Not support %v currently, please select token FC or starts with 'c', such as cUsdt, cMoon and so on.", token.Symbol)
-	// }
+
 	tokenAddr := cfxaddress.MustNew(token.Address, env.networkID)
 	return token.Symbol, &tokenAddr
 }
@@ -657,7 +662,7 @@ func confirmSendingByUser(receivers []Receiver) bool {
 	for _, r := range receivers {
 		sumAmount = r.AmountInCfx.Add(sumAmount)
 	}
-	fmt.Printf("⚠️  Please confirm the sending data: receiver number %d, sending amount %v; press Y to confirm, N to refuse\n", length, sumAmount)
+	fmt.Printf("🛑  Please confirm the sending data: receiver number %d, sending amount %v; press Y to confirm, N to refuse\n", length, sumAmount)
 	for {
 		yes := "N"
 		fmt.Scanln(&yes)
