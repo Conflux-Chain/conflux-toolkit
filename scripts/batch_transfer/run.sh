@@ -137,7 +137,7 @@ do
             break
             ;;
         "espace")
-            url="https://evmtestnet.confluxrpc.com/cfxbridge"
+            url="https://evmtestnet-cfxbridge.confluxrpc.com"
             break
             ;;
         esac
@@ -152,11 +152,11 @@ do
 
         case ${space} in
         "core")
-            url="https://main.confluxrpc.com"
+            url="https://main.confluxrpc.com/MQ9nhk9sNRFSJr1f3dog1G8RYqAk2sVHCLZJk5iFqk2fbXoqejmFaoNuDWNUN8CwBtANPGwV9EPujHDP7vhK87mu5"
             break
             ;;
         "espace")
-            url="https://evm.confluxrpc.com/cfxbridge"
+            url="https://evm-cfxbridge.confluxrpc.com"
             break
             ;;
         esac
