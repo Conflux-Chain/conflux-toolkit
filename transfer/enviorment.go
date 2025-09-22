@@ -158,6 +158,22 @@ func (env *Enviorment) DecodeTx(rawTxBytes []byte) *types.UnsignedTransaction {
 	panic("unknown space")
 }
 
+func (env *Enviorment) DecodeSignedTx(rawTxBytes []byte) *types.SignedTransaction {
+	switch env.space {
+	case types.SPACE_NATIVE:
+		signedTx := &types.SignedTransaction{}
+		err := signedTx.Decode(rawTxBytes, env.networkID)
+		util.OsExitIfErr(err, "Failed to decode signed tx %v to cfx tx", rawTxBytes)
+		return signedTx
+	case types.SPACE_EVM:
+		signedTx := &ethtypes.Transaction{}
+		err := rlp.DecodeBytes(rawTxBytes, signedTx)
+		util.OsExitIfErr(err, "Failed to decode signed tx %v to eth tx", rawTxBytes)
+		panic("unsupported decode signed tx for espace")
+	}
+	panic("unknown space")
+}
+
 func (env *Enviorment) setSpace() {
 	// var space types.SpaceType
 	switch env.networkID {

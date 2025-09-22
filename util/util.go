@@ -71,6 +71,10 @@ func DisplayValueWithUnit(drip *big.Int, tokenSymbol ...string) string {
 	return fmt.Sprintf("%v %v", decimal.NewFromBigInt(drip, -18), _tokenSymbol)
 }
 
+func DisplayTokenValueInDecimals(amountInBaseUnits *big.Int, tokenSymbol string, decimals int64) string {
+	return fmt.Sprintf("%v %v", decimal.NewFromBigInt(amountInBaseUnits, int32(-decimals)), tokenSymbol)
+}
+
 // OsExitIfErr prints error msg and exit
 func OsExitIfErr(err error, format string, a ...interface{}) {
 	if err != nil {

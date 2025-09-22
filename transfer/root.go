@@ -105,6 +105,9 @@ func doTransfers(cmd *cobra.Command, args []string) {
 	env.pState.setSelectTokenAndSave(tokenSymbol, tokenAddress)
 	receiverInfos = receiverInfos[env.pState.SendingStartIdx:]
 
+	// get token decimals
+	tokenDecimals := getTokenDecimals(tokenAddress)
+
 	logrus.Debugf("a receiverInfos len:%v\n", len(receiverInfos))
 	if len(env.pState.SendingBatchElems) > 0 {
 		fmt.Printf("- There are uncompleted tx in last time, start send one batch from %v and length %v ===\n",
@@ -119,14 +122,14 @@ func doTransfers(cmd *cobra.Command, args []string) {
 		exitIfHasPendingTxs()
 		// check balance
 		fmt.Println("===== Check if balance enough =====")
-		checkBalance(env.client, *env.GetFromAddressOfSpace(), receiverInfos, tokenAddress, tokenSymbol)
+		checkBalance(env.client, *env.GetFromAddressOfSpace(), receiverInfos, tokenAddress, tokenSymbol, tokenDecimals)
 
 		estimates := estimateGasAndCollateral(tokenAddress)
 		for len(receiverInfos) > 0 {
 			batchNum := int(math.Min(float64(perBatchNum), float64(len(receiverInfos))))
 
 			fmt.Printf("\n===== Start send one batch with %v tx=====\n", batchNum)
-			elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, estimates)
+			elems := creatOneBatchElems(receiverInfos[:batchNum], tokenAddress, tokenSymbol, tokenDecimals, estimates)
 			sentNum := sendOneBatch(elems, &batchSummary)
 			receiverInfos = receiverInfos[sentNum:]
 			logrus.Debugf("c receiverInfos len:%v\n", len(receiverInfos))
@@ -161,7 +164,7 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 		}
 	}
 	randomAddr := cfxaddress.MustNewFromHex("0x0000000000000000000000000000000100000001")
-	data := getTransferData(*tokenAddress, randomAddr, big.NewInt(0)).String()
+	data := getTransferData(*tokenAddress, randomAddr, big.NewInt(1)).String()
 	callReq := types.CallRequest{
 		From: env.GetFromAddressOfSpace(),
 		To:   tokenAddress,
@@ -180,19 +183,20 @@ func estimateGasAndCollateral(tokenAddress *cfxaddress.Address) types.Estimate {
 	return em
 }
 
-func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Address, tokenSymbol string, estimates types.Estimate) (elems []clientRpc.BatchElem) {
+func creatOneBatchElems(oneBatchReceiver []Receiver, tokenAddress *cfxaddress.Address, tokenSymbol string, tokenDecimals int64, estimates types.Estimate) (elems []clientRpc.BatchElem) {
 	// env.lastPoint is start with -1, so env.lastPoint+1 is actual index, env.lastPoint + 2 is the index count from 1
 	startCnt := env.pState.SendingStartIdx + 1 //- len(oneBatchReceiver)
 
 	rpcBatchElems := []clientRpc.BatchElem{}
 	for i, v := range oneBatchReceiver {
-		tx := createTx(*env.GetFromAddressOfSpace(), v, tokenAddress, env.nonce, estimates)
+		tx := createTx(*env.GetFromAddressOfSpace(), v, tokenAddress, tokenDecimals, env.nonce, estimates)
 		rpcBatchElems = append(rpcBatchElems, createBatchElemItem(tx))
 
 		receiver := cfxaddress.MustNew(v.Address, env.networkID)
+		amountInBaseUnits := calcAmountInBaseUnits(weight, v.AmountInDecimals, tokenDecimals)
 		fmt.Printf("%v. Sign send %v to %v with value %v nonce %v done\n",
 			startCnt+i, tokenSymbol, env.AddrDisplay(&receiver),
-			util.DisplayValueWithUnit(calcValue(weight, v.AmountInCfx)), tx.Nonce)
+			util.DisplayTokenValueInDecimals(amountInBaseUnits, tokenSymbol, tokenDecimals), tx.Nonce)
 		env.nonce = env.nonce.Add(env.nonce, big.NewInt(1))
 	}
 	return rpcBatchElems
@@ -384,9 +388,10 @@ func improveTxGasPrice(be clientRpc.BatchElem) clientRpc.BatchElem {
 	rawTxByts, err := hex.DecodeString(rawTxStr[2:])
 	util.OsExitIfErr(err, "Failed to decode raw tx string %v", rawTxStr)
 
-	signedTx := &types.SignedTransaction{}
-	err = signedTx.Decode(rawTxByts, env.networkID)
-	util.OsExitIfErr(err, "Failed to decode signed tx %v", signedTx)
+	// signedTx := &types.SignedTransaction{}
+	// err = signedTx.Decode(rawTxByts, env.networkID)
+	// util.OsExitIfErr(err, "Failed to decode signed tx %v", signedTx)
+	signedTx := env.DecodeSignedTx(rawTxByts)
 
 	logrus.Debugf("before gasPrice %v\n", signedTx.UnsignedTransaction.GasPrice.ToInt())
 	signedTx.UnsignedTransaction.GasPrice = types.NewBigIntByRaw(new(big.Int).Add(signedTx.UnsignedTransaction.GasPrice.ToInt(), big.NewInt(1000)))
@@ -522,7 +527,7 @@ func waitLastReceipt(rpcBatchElems []clientRpc.BatchElem) (timeout bool) {
 	return false
 }
 
-func createTx(from types.Address, receiver Receiver, token *types.Address, nonce *big.Int, estimates types.Estimate) *types.UnsignedTransaction {
+func createTx(from types.Address, receiver Receiver, token *types.Address, tokenDecimals int64, nonce *big.Int, estimates types.Estimate) *types.UnsignedTransaction {
 	tx := &types.UnsignedTransaction{}
 
 	tx.From = &from
@@ -531,7 +536,7 @@ func createTx(from types.Address, receiver Receiver, token *types.Address, nonce
 	tx.EpochHeight = types.NewUint64(env.epochHeight)
 	tx.Nonce = types.NewBigIntByRaw(nonce)
 
-	amountInDrip := calcValue(weight, receiver.AmountInCfx)
+	amountInDrip := calcAmountInBaseUnits(weight, receiver.AmountInDecimals, tokenDecimals)
 	to := cfxaddress.MustNew(receiver.Address, env.chainID)
 	if token == nil {
 		tx.To = &to
@@ -557,8 +562,11 @@ func getTransferData(contractAddress types.Address, reciever types.Address, amou
 	return data
 }
 
-func calcValue(numberPerTime decimal.Decimal, weigh decimal.Decimal) *big.Int {
-	return weight.Mul(weigh).Mul(decimal.NewFromInt(1e18)).BigInt()
+// cals amount in base units, amountInDecimals is the amount in decimals, for examole, decimals is 18, then 1 means 1e18 amountInBaseUnits.
+func calcAmountInBaseUnits(_weight decimal.Decimal, amountInDecimals decimal.Decimal, decimals int64) *big.Int {
+	// return _weight.Mul(amountInDecimals).Mul(decimal.NewFromInt(decimals)).BigInt()
+	amountInBaseUnits := amountInDecimals.Mul(decimal.NewFromBigInt(big.NewInt(1), int32(decimals)))
+	return _weight.Mul(amountInBaseUnits).BigInt()
 }
 
 // ================= user interact ========================
@@ -576,9 +584,9 @@ type TokensResp struct {
 }
 
 func selectToken() (symbol string, contractAddress *types.Address) {
-	if env.isDebugMode {
-		return "", nil
-	}
+	// if env.isDebugMode {
+	// 	return "", nil
+	// }
 	fmt.Println("\n===== Start select token =====")
 
 	url := env.GetTokenListUrl() + env.GetFromAddressOfSpace().String()
@@ -660,7 +668,7 @@ func confirmSendingByUser(receivers []Receiver) bool {
 	length := len(receivers)
 	sumAmount := decimal.Zero
 	for _, r := range receivers {
-		sumAmount = r.AmountInCfx.Add(sumAmount)
+		sumAmount = r.AmountInDecimals.Add(sumAmount)
 	}
 	fmt.Printf("🛑  Please confirm the sending data: receiver number %d, sending amount %v; press Y to confirm, N to refuse\n", length, sumAmount)
 	for {
@@ -707,7 +715,7 @@ func SetParent(parent *cobra.Command) {
 	parent.AddCommand(rootCmd)
 }
 
-func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address, tokenSymbol string) {
+func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, token *types.Address, tokenSymbol string, tokenDecimals int64) {
 
 	var (
 		cfxBalance   *big.Int = big.NewInt(0)
@@ -753,7 +761,7 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	}
 
 	for _, v := range receivers {
-		aReceiveNeed := calcValue(weight, v.AmountInCfx)
+		aReceiveNeed := calcAmountInBaseUnits(weight, v.AmountInDecimals, tokenDecimals)
 		// gasFee := big.NewInt(0)
 		// if token == nil {
 		// 	gasFee = big.NewInt(1).Mul(defaultGasLimit.ToInt(), account.MustParsePrice())
@@ -792,8 +800,8 @@ func checkBalance(client *sdk.Client, from types.Address, receivers []Receiver, 
 	}
 
 	fmt.Printf("Balance of %v is enough, %v need %v, fee need %v; token has %v, cfx has %v\n", env.AddrDisplay(&from), tokenSymbol,
-		util.DisplayValueWithUnit(receiveNeed, tokenSymbol), util.DisplayValueWithUnit(new(big.Int).Add(gasNeed, storageNeed)),
-		util.DisplayValueWithUnit(tokenBalance, tokenSymbol), util.DisplayValueWithUnit(cfxBalance))
+		util.DisplayTokenValueInDecimals(receiveNeed, tokenSymbol, tokenDecimals), util.DisplayValueWithUnit(new(big.Int).Add(gasNeed, storageNeed)),
+		util.DisplayTokenValueInDecimals(tokenBalance, tokenSymbol, tokenDecimals), util.DisplayValueWithUnit(cfxBalance))
 }
 
 func exitIfHasPendingTxs() {
@@ -808,4 +816,15 @@ func exitIfHasPendingTxs() {
 		fmt.Printf("Exit, account %v has pending txs, please clear it first\n", env.AddrDisplay(from))
 		os.Exit(0)
 	}
+}
+
+func getTokenDecimals(tokenAddress *cfxaddress.Address) int64 {
+	if tokenAddress == nil {
+		return 18
+	}
+	contract := common.MustGetCTokenContract(tokenAddress.String())
+	decimals := uint8(0)
+	err := contract.Call(nil, &decimals, "decimals")
+	util.OsExitIfErr(err, "⭕ Failed to get token %v decimals", tokenAddress)
+	return int64(decimals)
 }

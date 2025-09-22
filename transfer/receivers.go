@@ -54,8 +54,8 @@ func mustParseReceivers() []Receiver {
 		}
 
 		info := Receiver{
-			Address:     items[0],
-			AmountInCfx: amountInCfx,
+			Address:          items[0],
+			AmountInDecimals: amountInCfx,
 		}
 
 		receiverInfos = append(receiverInfos, info)
