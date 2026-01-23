@@ -119,13 +119,13 @@ func (env *Enviorment) GetFromAddressOfSpace() *cfxaddress.Address {
 func (env *Enviorment) GetTokenListUrl() string {
 	switch env.networkID {
 	case util.MAINNET:
-		return "https://api.confluxscan.net/account/tokens?account="
+		return "https://api.confluxscan.org/account/tokens?account="
 	case util.TESTNET:
-		return "https://api-testnet.confluxscan.net/account/tokens?account="
+		return "https://api-testnet.confluxscan.org/account/tokens?account="
 	case util.ESPACE_MAINNET:
-		return "https://evmapi.confluxscan.net/account/tokens?account="
+		return "https://evmapi.confluxscan.org/account/tokens?account="
 	case util.ESPACE_TESTNET:
-		return "https://evmapi-testnet.confluxscan.net/account/tokens?account="
+		return "https://evmapi-testnet.confluxscan.org/account/tokens?account="
 	}
 	panic("unknown network")
 }
